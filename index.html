@@ -3,228 +3,276 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>天空小奇兵 - 史詩終章</title>
+    <title>天空小奇兵 Pro - 限時獵殺</title>
     <script src="https://cdn.jsdelivr.net/npm/phaser@3.60.0/dist/phaser-arcade-physics.min.js"></script>
     <style>
         body { margin: 0; background: #000; overflow: hidden; display: flex; justify-content: center; align-items: center; height: 100vh; }
-        canvas { box-shadow: 0 0 30px rgba(0, 200, 255, 0.5); border: 2px solid #333; }
+        #game-container { width: 100%; height: 100%; }
     </style>
 </head>
 <body>
+<div id="game-container"></div>
 
 <script>
-/**
- * 遊戲設定：自動適應尺寸
- */
+/** 遊戲主配置 - 支持自適應 **/
 const config = {
     type: Phaser.AUTO,
-    width: 450,
-    height: 800,
-    scale: { mode: Phaser.Scale.FIT, autoCenter: Phaser.Scale.CENTER_BOTH },
+    parent: 'game-container',
+    scale: {
+        mode: Phaser.Scale.RESIZE, // 自動調整大小
+        autoCenter: Phaser.Scale.CENTER_BOTH
+    },
     physics: { default: 'arcade', arcade: { gravity: { y: 0 } } },
     scene: { preload, create, update }
 };
 
 const game = new Phaser.Game(config);
 
-let player, cursors, bullets, enemies, nukes = 3, score = 0;
-let nukeIcons = [], scoreText, statusText, boss, bossHPBar, bossHPMax = 200;
-let isBossActive = false, canControl = true;
+let player, bullets, enemyBullets, enemies, items, nukes = 3;
+let fireLevel = 1, isBossActive = false, isStunned = false;
+let nukeIcons = [], scoreText, timerText, bg, boss, bossHPBar, bossHPMax = 1000;
+let gameTimer = 60, bossTimerEvent, score = 0;
 
 function preload() {
-    // 建立向量圖形資源，防止黑畫面
-    const graphics = this.make.graphics({ x: 0, y: 0, add: false });
+    const g = this.make.graphics({ x: 0, y: 0, add: false });
+    
+    // 1. 精細化直升機 (多層次繪圖)
+    g.fillStyle(0xffffff); g.fillRoundedRect(8, 12, 16, 16, 4); // 主機身
+    g.fillStyle(0x3498db); g.fillEllipse(16, 15, 6, 4); // 駕駛艙
+    g.fillStyle(0xff0000); g.fillRect(0, 18, 32, 2); // 螺旋槳
+    g.generateTexture('hero', 32, 32); g.clear();
 
-    // 1. 玩家飛機
-    graphics.fillStyle(0x00ccff, 1);
-    graphics.fillTriangle(0, 32, 16, 0, 32, 32);
-    graphics.generateTexture('ship', 32, 32);
-    graphics.clear();
+    // 2. 敵方攔截機
+    g.fillStyle(0xe74c3c); g.fillTriangle(0, 0, 32, 16, 0, 32);
+    g.generateTexture('enemy', 32, 32); g.clear();
 
-    // 2. 敵機
-    graphics.fillStyle(0xff3300, 1);
-    graphics.fillCircle(16, 16, 16);
-    graphics.generateTexture('enemy', 32, 32);
-    graphics.clear();
+    // 3. 超級飛彈圖標 (核彈)
+    g.lineStyle(2, 0xf1c40f); g.strokeCircle(20, 20, 18);
+    g.fillStyle(0xf1c40f); g.fillTriangle(10, 30, 20, 10, 30, 30);
+    g.generateTexture('nuke', 40, 40); g.clear();
 
-    // 3. 子彈
-    graphics.fillStyle(0xffff00, 1);
-    graphics.fillRect(0, 0, 4, 12);
-    graphics.generateTexture('bullet', 4, 12);
-    graphics.clear();
-
-    // 4. 核彈圖標
-    graphics.lineStyle(2, 0xff0000);
-    graphics.strokeCircle(20, 20, 18);
-    graphics.fillStyle(0xff0000, 1);
-    graphics.fillCircle(20, 20, 10);
-    graphics.generateTexture('nuke', 40, 40);
+    // 4. 粒子與子彈
+    g.fillStyle(0x00ffff); g.fillRect(0, 0, 4, 12); g.generateTexture('bullet', 4, 12); g.clear();
 }
 
 function create() {
-    // 背景星空感
-    this.stars = this.add.blitter(0, 0, 'bullet');
-    for (let i = 0; i < 50; i++) {
-        this.stars.create(Phaser.Math.Between(0, 450), Phaser.Math.Between(0, 800)).setAlpha(0.3);
-    }
+    const { width, height } = this.scale;
 
-    // 玩家與群組
-    player = this.physics.add.sprite(225, 700, 'ship');
-    player.setCollideWorldBounds(true);
-    bullets = this.physics.add.group();
-    enemies = this.physics.add.group();
-
-    // 控制系統
-    cursors = this.input.keyboard.createCursorKeys();
+    // 峽谷背景 - 使用滾動紋理模擬
+    bg = this.add.grid(width/2, height/2, width * 2, height * 2, 40, 40, 0x1a1a2e, 0.5, 0x16213e);
     
-    // UI 文字
-    scoreText = this.add.text(20, 20, 'SCORE: 0', { fontSize: '24px', fontStyle: 'bold', fill: '#0ff' });
-    statusText = this.add.text(225, 400, 'MISSION START', { fontSize: '40px', fontStyle: 'bold', fill: '#fff' }).setOrigin(0.5);
-    this.tweens.add({ targets: statusText, alpha: 0, duration: 2000 });
+    // 玩家
+    player = this.physics.add.sprite(width / 2, height - 100, 'hero').setScale(1.5);
+    player.setCollideWorldBounds(true);
+    
+    // 群組
+    bullets = this.physics.add.group();
+    enemyBullets = this.physics.add.group();
+    enemies = this.physics.add.group();
+    items = this.physics.add.group();
 
-    // 核彈按鈕 UI
-    for (let i = 0; i < 3; i++) {
-        let n = this.add.image(410 - (i * 50), 40, 'nuke').setInteractive().setAlpha(0.8);
-        n.on('pointerdown', () => useNuke.call(this));
-        nukeIcons.push(n);
-    }
+    // UI 設計
+    scoreText = this.add.text(20, 20, 'SCORE: 0', { fontSize: '24px', fontStyle: 'bold', fill: '#0ff' }).setScrollFactor(0);
+    timerText = this.add.text(width / 2, 50, '', { fontSize: '40px', fontStyle: 'bold', fill: '#ff4757' }).setOrigin(0.5).setScrollFactor(0).setVisible(false);
 
-    // 自動射擊
-    this.time.addEvent({
-        delay: 150,
-        callback: () => { if (this.input.activePointer.isDown && canControl) fireBullet.call(this); },
-        loop: true
-    });
+    // 核彈 UI
+    this.refreshNukeUI = () => {
+        nukeIcons.forEach(i => i.destroy());
+        nukeIcons = [];
+        for (let i = 0; i < nukes; i++) {
+            let n = this.add.image(width - 40 - (i * 50), 40, 'nuke').setInteractive().setScale(0.8);
+            n.on('pointerdown', () => useNuke.call(this));
+            nukeIcons.push(n);
+        }
+    };
+    this.refreshNukeUI();
+
+    // 自動發射
+    this.time.addEvent({ delay: 150, callback: () => { if (!isStunned) fireBullet.call(this); }, loop: true });
 
     // 敵人生成
-    this.spawnTimer = this.time.addEvent({
-        delay: 800,
-        callback: spawnEnemy,
-        callbackScope: this,
-        loop: true
-    });
+    this.spawnEvent = this.time.addEvent({ delay: 800, callback: spawnEnemy, callbackScope: this, loop: true });
 
     // 碰撞偵測
-    this.physics.add.overlap(bullets, enemies, (b, e) => {
-        e.destroy(); b.destroy();
-        score += 100;
-        scoreText.setText('SCORE: ' + score);
-        if (score >= 3000 && !isBossActive) triggerBoss.call(this);
-    });
+    this.physics.add.overlap(bullets, enemies, hitEnemy, null, this);
+    this.physics.add.overlap(enemyBullets, player, hitPlayer, null, this);
+    this.physics.add.overlap(player, enemies, hitPlayer, null, this);
 
-    this.physics.add.overlap(player, enemies, () => {
-        this.cameras.main.shake(200, 0.02);
+    // 監聽視窗縮放
+    this.scale.on('resize', (gameSize) => {
+        const { width, height } = gameSize;
+        bg.setPosition(width / 2, height / 2);
+        scoreText.setPosition(20, 20);
+        timerText.setPosition(width / 2, 50);
+        this.refreshNukeUI();
     });
 }
 
 function update() {
-    if (!canControl) return;
+    bg.y += 2; if (bg.y > 40) bg.y = 0; // 無盡滾動
+    
+    if (isStunned) {
+        player.angle += 20; // 暈眩旋轉效果
+        return;
+    } else {
+        player.angle = 0;
+    }
 
+    const speed = 400;
+    const pointer = this.input.activePointer;
+    
     // 鍵盤移動
-    const speed = 350;
+    const cursors = this.input.keyboard.createCursorKeys();
     player.setVelocity(0);
     if (cursors.left.isDown) player.setVelocityX(-speed);
     else if (cursors.right.isDown) player.setVelocityX(speed);
     if (cursors.up.isDown) player.setVelocityY(-speed);
     else if (cursors.down.isDown) player.setVelocityY(speed);
 
-    // 滑鼠/觸控移動
-    if (this.input.activePointer.isDown) {
-        this.physics.moveToObject(player, this.input.activePointer, speed);
+    // 手機觸控/滑鼠跟隨
+    if (pointer.isDown) {
+        this.physics.moveToObject(player, pointer, speed);
     }
 }
 
 function fireBullet() {
-    let b = bullets.create(player.x, player.y - 20, 'bullet');
-    b.setVelocityY(-600);
+    let b = bullets.create(player.x, player.y - 30, 'bullet').setTint(0x00ffff);
+    b.setVelocityY(-700);
 }
 
 function spawnEnemy() {
     if (isBossActive) return;
-    let x = Phaser.Math.Between(50, 400);
-    let e = enemies.create(x, -50, 'enemy');
+    let e = enemies.create(Phaser.Math.Between(50, this.scale.width - 50), -50, 'enemy');
     e.setVelocityY(Phaser.Math.Between(200, 400));
+    e.setAngle(90);
+    
+    // 敵機偶爾開火
+    if (Phaser.Math.Between(0, 10) > 7) {
+        let eb = enemyBullets.create(e.x, e.y, 'bullet').setTint(0xff4757);
+        this.physics.moveToObject(eb, player, 300);
+    }
+}
+
+function hitEnemy(bullet, enemy) {
+    bullet.destroy();
+    enemy.destroy();
+    score += 100;
+    scoreText.setText('SCORE: ' + score);
+    if (score >= 3000 && !isBossActive) startBossPhase.call(this);
+}
+
+/** 暈眩機制：被打到不會死，只會轉圈圈 **/
+function hitPlayer(p, enemyOrBullet) {
+    if (isStunned) return;
+    enemyOrBullet.destroy();
+    
+    isStunned = true;
+    this.cameras.main.shake(300, 0.02);
+    player.setTint(0xff0000);
+
+    this.time.delayedCall(1200, () => {
+        isStunned = false;
+        player.clearTint();
+    });
 }
 
 function useNuke() {
-    if (nukes <= 0 || !canControl) return;
+    if (nukes <= 0 || isStunned) return;
     nukes--;
-    nukeIcons[nukes].setVisible(false);
-
+    this.refreshNukeUI();
+    
     this.cameras.main.flash(500, 255, 255, 255);
-    this.cameras.main.shake(500, 0.05);
-
     enemies.clear(true, true);
+    enemyBullets.clear(true, true);
     if (isBossActive && boss) {
-        boss.hp -= 50;
+        boss.hp -= 200;
         updateBossHP();
     }
 }
 
-function triggerBoss() {
+/** Boss 戰前置：補滿超級飛彈 **/
+function startBossPhase() {
     isBossActive = true;
-    this.spawnTimer.remove();
+    this.spawnEvent.remove();
     
-    // 補給最後一顆核彈
-    if (nukes < 3) {
-        nukeIcons[nukes].setVisible(true);
-        nukes++;
-    }
+    // 補滿三顆核彈
+    nukes = 3;
+    this.refreshNukeUI();
 
-    statusText.setText('WARNING: BOSS APPEARING').setAlpha(1);
-    this.cameras.main.shake(1000, 0.01);
+    const warn = this.add.text(this.scale.width/2, this.scale.height/2, 'BOSS WARNING', { fontSize: '50px', fontStyle: 'bold', fill: '#f00' }).setOrigin(0.5);
+    this.tweens.add({ targets: warn, alpha: 0, duration: 500, yoyo: true, repeat: 3, onComplete: () => {
+        warn.destroy();
+        spawnBoss.call(this);
+    }});
+}
 
-    this.time.delayedCall(2000, () => {
-        statusText.setAlpha(0);
-        boss = this.physics.add.sprite(225, -150, 'enemy').setScale(5).setTint(0xff0000);
-        boss.hp = bossHPMax;
-        this.tweens.add({ targets: boss, y: 150, duration: 2000, ease: 'Back.easeOut' });
+function spawnBoss() {
+    boss = this.physics.add.sprite(this.scale.width/2, -150, 'enemy').setScale(5).setTint(0xff4757);
+    boss.hp = bossHPMax;
+    boss.setAngle(90);
+    this.tweens.add({ targets: boss, y: 150, duration: 2000, ease: 'Back.easeOut' });
 
-        bossHPBar = this.add.rectangle(225, 250, 300, 15, 0xff0000);
-        this.physics.add.overlap(bullets, boss, (boss, bullet) => {
-            bullet.destroy();
-            boss.hp -= 1;
-            updateBossHP.call(this);
-        });
+    // Boss 血條
+    this.hpBg = this.add.rectangle(this.scale.width/2, 100, 300, 10, 0x333333).setScrollFactor(0);
+    bossHPBar = this.add.rectangle(this.scale.width/2, 100, 300, 10, 0xff0000).setScrollFactor(0);
+
+    // 啟動限時器
+    timerText.setVisible(true).setText(gameTimer);
+    bossTimerEvent = this.time.addEvent({
+        delay: 1000,
+        callback: () => {
+            gameTimer--;
+            timerText.setText(gameTimer);
+            if (gameTimer <= 0) finalizeGame.call(this, false);
+        },
+        loop: true
+    });
+
+    // Boss 瘋狂彈幕
+    this.time.addEvent({
+        delay: 1500,
+        callback: () => {
+            if (!boss.active) return;
+            for(let i=0; i<8; i++) {
+                let eb = enemyBullets.create(boss.x, boss.y, 'bullet').setTint(0xffa502);
+                this.physics.velocityFromAngle(i * 45, 250, eb.body.velocity);
+            }
+        },
+        loop: true
+    });
+
+    this.physics.add.overlap(bullets, boss, (b, bull) => {
+        bull.destroy();
+        boss.hp -= 2;
+        updateBossHP();
     });
 }
 
 function updateBossHP() {
-    const width = Math.max(0, (boss.hp / bossHPMax) * 300);
-    bossHPBar.width = width;
-
-    if (boss.hp <= 0) {
-        victoryEffect.call(this);
-    }
+    if (!bossHPBar) return;
+    const w = Math.max(0, (boss.hp / bossHPMax) * 300);
+    bossHPBar.width = w;
+    if (boss.hp <= 0) finalizeGame.call(this, true);
 }
 
-function victoryEffect() {
-    canControl = false;
+function finalizeGame(isWin) {
+    if (bossTimerEvent) bossTimerEvent.remove();
     isBossActive = false;
-    boss.setVelocity(0);
-    player.setVelocity(0);
-
-    // 史詩級震撼結束感
-    this.time.addEvent({
-        delay: 100,
-        repeat: 10,
-        callback: () => {
-            this.cameras.main.flash(50, 255, 255, 255);
-            this.cameras.main.shake(100, 0.03);
-            let boom = this.add.circle(boss.x + Phaser.Math.Between(-100, 100), boss.y + Phaser.Math.Between(-100, 100), 50, 0xffffff);
-            this.tweens.add({ targets: boom, scale: 2, alpha: 0, duration: 300 });
-        }
-    });
-
-    this.time.delayedCall(1500, () => {
+    
+    const result = isWin ? 'MISSION COMPLETE' : 'MISSION FAILED';
+    const color = isWin ? '#2ecc71' : '#e74c3c';
+    
+    if (isWin) {
         boss.destroy();
-        bossHPBar.destroy();
         this.cameras.main.flash(1000, 255, 255, 255);
-        statusText.setText('MISSION COMPLETE').setAlpha(1).setScale(1.5).setTint(0x00ff00);
-        this.add.text(225, 480, 'LEGENDARY PILOT', { fontSize: '24px', fill: '#fff' }).setOrigin(0.5);
-    });
+    }
+
+    this.add.text(this.scale.width/2, this.scale.height/2, result, { 
+        fontSize: '50px', fontStyle: 'bold', fill: color, stroke: '#000', strokeThickness: 8 
+    }).setOrigin(0.5);
+
+    this.time.delayedCall(3000, () => location.reload());
 }
 </script>
-
 </body>
 </html>
