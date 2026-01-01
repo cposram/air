@@ -3,252 +3,320 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Super Pilot - 2Min Rush</title>
-    <script src="https://cdn.jsdelivr.net/npm/phaser@3.60.0/dist/phaser-arcade-physics.min.js"></script>
+    <title>Super Pilot: Shield Evolution</title>
     <style>
-        body { margin: 0; background: #000; overflow: hidden; display: flex; justify-content: center; align-items: center; height: 100vh; }
-        canvas { border: 2px solid #333; }
+        body { margin: 0; background: #000; overflow: hidden; display: flex; justify-content: center; align-items: center; height: 100vh; font-family: sans-serif; touch-action: none; }
+        #game-container { position: relative; overflow: hidden; border: 2px solid #222; }
+        canvas { background: #000; display: block; }
+        
+        /* UI 層 */
+        #ui { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; color: white; }
+        .hud-text { padding: 15px; font-weight: bold; text-shadow: 2px 2px #000; }
+        
+        /* 帥氣核彈 UI */
+        #nuke-container { position: absolute; top: 20px; right: 20px; display: flex; gap: 10px; pointer-events: auto; }
+        .nuke-icon { 
+            width: 40px; height: 40px; background: radial-gradient(circle, #fff, #f00); 
+            border-radius: 50%; border: 3px solid #fff; cursor: pointer; 
+            box-shadow: 0 0 15px #f00; display: flex; justify-content: center; align-items: center;
+            font-size: 20px; font-weight: bold; color: black; animation: pulse 1s infinite alternate;
+        }
+        @keyframes pulse { from { transform: scale(1); } to { transform: scale(1.1); } }
+        
+        #boss-hp-bar { display: none; position: absolute; top: 90px; left: 10%; width: 80%; height: 15px; background: #333; border: 2px solid #fff; border-radius: 10px; overflow: hidden; }
+        #boss-hp-inner { width: 100%; height: 100%; background: linear-gradient(to right, #0ff, #00f); transition: width 0.1s; }
     </style>
 </head>
 <body>
-<div id="game-container"></div>
+
+    <div id="game-container">
+        <canvas id="gameCanvas"></canvas>
+        <div id="ui">
+            <div class="hud-text">
+                <span style="color:#0ff">TIME: <span id="timer">120</span>s</span><br>
+                <span id="shield-status" style="color:#3498db; display:none;">🛡️ 無敵中!</span>
+            </div>
+            <div id="nuke-container"></div>
+            <div id="boss-hp-bar"><div id="boss-hp-inner"></div></div>
+            <div id="big-msg" style="position:absolute; top:40%; width:100%; text-align:center; font-size:40px; font-weight:bold; color:#0ff; text-shadow:0 0 15px #0ff; display:none;"></div>
+        </div>
+    </div>
 
 <script>
-/** 遊戲主配置 - 強大自適應系統 **/
-const config = {
-    type: Phaser.AUTO,
-    parent: 'game-container',
-    scale: { mode: Phaser.Scale.RESIZE, autoCenter: Phaser.Scale.CENTER_BOTH },
-    physics: { default: 'arcade', arcade: { gravity: { y: 0 } } },
-    scene: { preload, create, update }
+/** 遊戲核心常數 **/
+const canvas = document.getElementById('gameCanvas');
+const ctx = canvas.getContext('2d');
+const ui = {
+    timer: document.getElementById('timer'),
+    msg: document.getElementById('big-msg'),
+    nukeBox: document.getElementById('nuke-container'),
+    bossBar: document.getElementById('boss-hp-bar'),
+    bossFill: document.getElementById('boss-hp-inner'),
+    shield: document.getElementById('shield-status')
 };
 
-const game = new Phaser.Game(config);
-
-let player, bullets, enemyBullets, enemies, items, nukes = 3;
-let fireMode = 'normal', isBossActive = false, isStunned = false, isGameOver = false;
-let nukeIcons = [], timerText, progressText, boss, bossHPBar, bossHPBarBg;
-let gameTotalTime = 120, elapsedTime = 0; // 總長120秒
-let bg, particles;
-
-function preload() {
-    // 內部生成高質感圖形，防止任何外部讀取導致的黑畫面
-    const g = this.make.graphics({ x: 0, y: 0, add: false });
-    
-    // 1. 直升機
-    g.fillStyle(0xffffff); g.fillRoundedRect(8, 12, 16, 16, 4);
-    g.fillStyle(0x00ccff); g.fillEllipse(16, 15, 8, 5); 
-    g.fillStyle(0xff3300); g.fillRect(0, 18, 32, 2); 
-    g.generateTexture('ship', 32, 32); g.clear();
-
-    // 2. 敵機
-    g.fillStyle(0xff4757); g.fillTriangle(0, 0, 32, 16, 0, 32);
-    g.generateTexture('enemy', 32, 32); g.clear();
-
-    // 3. 超級核彈
-    g.fillStyle(0xf1c40f); g.fillStar(20, 20, 5, 18, 8);
-    g.generateTexture('nuke', 40, 40); g.clear();
-
-    // 4. 道具
-    g.fillStyle(0x2ecc71); g.fillCircle(15, 15, 12);
-    g.fillStyle(0xffffff); g.fillStar(15, 15, 5, 10, 5);
-    g.generateTexture('powerup', 30, 30); g.clear();
-
-    // 5. 子彈
-    g.fillStyle(0x00ffff); g.fillRect(0, 0, 6, 16); g.generateTexture('b1', 6, 16); g.clear();
-    g.fillStyle(0xff00ff); g.fillRect(0, 0, 10, 30); g.generateTexture('b2', 10, 30); g.clear();
+function resize() {
+    const ratio = 450 / 800;
+    let w = window.innerWidth, h = window.innerHeight;
+    if (w / h > ratio) w = h * ratio; else h = w / ratio;
+    canvas.width = 450; canvas.height = 800;
+    canvas.style.width = w + 'px'; canvas.style.height = h + 'px';
+    const container = document.getElementById('game-container');
+    container.style.width = w + 'px'; container.style.height = h + 'px';
 }
+window.addEventListener('resize', resize);
+resize();
 
-function create() {
-    const { width, height } = this.scale;
+// 遊戲狀態
+let timeLeft = 120, isGameOver = false, isBossActive = false;
+let isStunned = false, isInvincible = false;
+let nukeCount = 3, firePower = 1, shake = 0, flash = 0, shock = 0;
+let lastTime = performance.now();
 
-    // 峽谷星空背景
-    bg = this.add.grid(width/2, height/2, width*2, height*2, 40, 40, 0x0a0a2e, 0.5, 0x1a1a4e);
-    
-    player = this.physics.add.sprite(width/2, height - 100, 'ship').setScale(1.5).setDepth(10);
-    player.setCollideWorldBounds(true);
+const player = { x: 225, y: 700, tx: 225, ty: 700, speed: 10 };
+const bullets = [], enemyBullets = [], enemies = [], items = [];
+const boss = { x: 225, y: -200, hp: 2000, maxHp: 2000, dir: 1, shootCD: 0 };
 
-    bullets = this.physics.add.group();
-    enemyBullets = this.physics.add.group();
-    enemies = this.physics.add.group();
-    items = this.physics.add.group();
-
-    // 粒子系統 (爆炸效果)
-    particles = this.add.particles(0, 0, 'b1', { speed: 100, scale: { start: 1, end: 0 }, lifespan: 400, emitting: false });
-
-    // UI 設計
-    timerText = this.add.text(width / 2, 40, '120s', { fontSize: '42px', fontStyle: 'bold', fill: '#ff4757', stroke: '#000', strokeThickness: 6 }).setOrigin(0.5);
-    progressText = this.add.text(20, 20, '進度: 0%', { fontSize: '24px', fill: '#fff' });
-
-    // 重繪核彈 UI
-    this.drawNukes = () => {
-        nukeIcons.forEach(n => n.destroy()); nukeIcons = [];
-        for (let i = 0; i < nukes; i++) {
-            let icon = this.add.image(this.scale.width - 40 - (i * 50), 40, 'nuke').setInteractive().setScale(0.8);
-            icon.on('pointerdown', () => useNuke.call(this));
-            nukeIcons.push(icon);
-        }
-    };
-    this.drawNukes();
-
-    // 核心計時邏輯 (控制節奏)
-    this.time.addEvent({
-        delay: 1000,
-        callback: () => {
-            if (isGameOver) return;
-            elapsedTime++;
-            let remain = gameTotalTime - elapsedTime;
-            timerText.setText(remain + 's');
-            
-            if (!isBossActive) {
-                let p = Math.floor((elapsedTime / 45) * 100);
-                progressText.setText('進度: ' + Math.min(p, 100) + '%');
-                if (elapsedTime >= 45) startBossPhase.call(this);
-            }
-            if (remain <= 0) gameOver.call(this, false);
-        },
-        loop: true
-    });
-
-    // 自動射擊
-    this.time.addEvent({ delay: 130, callback: () => { if (!isStunned && !isGameOver) fireBullet.call(this); }, loop: true });
-
-    // 敵人與道具隨機
-    this.spawnTimer = this.time.addEvent({ delay: 600, callback: spawnEnemy, callbackScope: this, loop: true });
-
-    // 碰撞規則
-    this.physics.add.overlap(bullets, enemies, hitEnemy, null, this);
-    this.physics.add.overlap(enemyBullets, player, hitPlayer, null, this);
-    this.physics.add.overlap(player, enemies, hitPlayer, null, this);
-    this.physics.add.overlap(player, items, collectItem, null, this);
-
-    this.scale.on('resize', () => { this.drawNukes(); });
-}
-
-function update() {
-    bg.y += 5; if (bg.y > 40) bg.y = 0;
-    if (isGameOver) return;
-
-    if (isStunned) { player.angle += 30; return; } else { player.angle = 0; }
-
-    const speed = 500;
-    const pointer = this.input.activePointer;
-    player.setVelocity(0);
-
-    if (pointer.isDown) { this.physics.moveToObject(player, pointer, speed); }
-    const cursors = this.input.keyboard.createCursorKeys();
-    if (cursors.left.isDown) player.setVelocityX(-speed);
-    else if (cursors.right.isDown) player.setVelocityX(speed);
-    if (cursors.up.isDown) player.setVelocityY(-speed);
-    else if (cursors.down.isDown) player.setVelocityY(speed);
-}
-
-function fireBullet() {
-    if (fireMode === 'normal') {
-        bullets.create(player.x, player.y - 20, 'b1').setTint(0x00ffff).setVelocityY(-800);
-    } else {
-        // 道具強化模式：巨型發散雷射
-        for(let i=-1; i<=1; i++) {
-            let b = bullets.create(player.x + (i*15), player.y - 30, 'b2').setTint(0xff00ff).setScale(1.5).setVelocityY(-1000);
-            b.setVelocityX(i * 100);
-        }
-        this.cameras.main.shake(100, 0.005);
+// 繪製核彈 UI
+function refreshNukes() {
+    ui.nukeBox.innerHTML = '';
+    for(let i=0; i<nukeCount; i++) {
+        const div = document.createElement('div');
+        div.className = 'nuke-icon';
+        div.innerHTML = '☢';
+        div.onclick = (e) => { e.stopPropagation(); useNuke(); };
+        ui.nukeBox.appendChild(div);
     }
 }
+refreshNukes();
 
-function spawnEnemy() {
-    if (isBossActive) return;
-    let x = Phaser.Math.Between(50, this.scale.width - 50);
-    let e = enemies.create(x, -50, 'enemy').setAngle(90).setTint(0xff4757);
-    e.setVelocityY(400);
-    if (Phaser.Math.Between(0, 10) > 6) {
-        enemyBullets.create(e.x, e.y, 'b1').setTint(0xff0000).setVelocityY(500);
-    }
-}
-
-function hitEnemy(b, e) {
-    particles.emitParticleAt(e.x, e.y, 10);
-    b.destroy(); e.destroy();
-    if (Phaser.Math.Between(1, 10) > 8) items.create(e.x, e.y, 'powerup').setVelocityY(200);
-}
-
-function collectItem(p, item) {
-    item.destroy();
-    fireMode = 'power';
-    this.cameras.main.flash(400, 0, 255, 0);
-    this.time.delayedCall(8000, () => fireMode = 'normal'); // 強化8秒
-}
-
-function hitPlayer(p, obj) {
-    if (isStunned || isGameOver) return;
-    obj.destroy();
-    isStunned = true;
-    player.setTint(0xff0000);
-    this.cameras.main.shake(300, 0.04);
-    this.time.delayedCall(1000, () => { isStunned = false; player.clearTint(); });
-}
+// 操作：指哪飛哪
+const handleMove = (ex, ey) => {
+    const rect = canvas.getBoundingClientRect();
+    player.tx = (ex - rect.left) * (450 / rect.width);
+    player.ty = (ey - rect.top) * (800 / rect.height);
+};
+canvas.addEventListener('mousemove', e => handleMove(e.clientX, e.clientY));
+canvas.addEventListener('touchmove', e => {
+    handleMove(e.touches[0].clientX, e.touches[0].clientY);
+    e.preventDefault();
+}, {passive: false});
 
 function useNuke() {
-    if (nukes <= 0 || isStunned || isGameOver) return;
-    nukes--; this.drawNukes();
-    this.cameras.main.flash(600, 255, 255, 255);
-    this.cameras.main.shake(1000, 0.06);
-    enemies.clear(true, true);
-    enemyBullets.clear(true, true);
-    if (isBossActive && boss) boss.hp -= 200;
+    if (nukeCount <= 0 || isStunned || isGameOver) return;
+    nukeCount--; refreshNukes();
+    shake = 30; flash = 1.0; shock = 10;
+    enemies.length = 0; enemyBullets.length = 0;
+    if (isBossActive) boss.hp -= 350;
 }
 
-function startBossPhase() {
-    isBossActive = true;
-    this.spawnTimer.remove();
-    nukes = 3; this.drawNukes(); // 自動補滿超級飛彈
-
-    let warning = this.add.text(this.scale.width/2, this.scale.height/2, 'WARNING\nBOSS APPROACHING', { fontSize: '48px', fontStyle: 'bold', fill: '#f00', align: 'center' }).setOrigin(0.5);
-    this.tweens.add({ targets: warning, alpha: 0, duration: 400, yoyo: true, repeat: 5, onComplete: () => {
-        warning.destroy(); spawnBoss.call(this);
-    }});
+function triggerStun() {
+    if (isInvincible || isStunned || isGameOver) return;
+    isStunned = true; shake = 10;
+    setTimeout(() => { isStunned = false; }, 1000);
 }
 
-function spawnBoss() {
-    boss = this.physics.add.sprite(this.scale.width/2, -200, 'enemy').setScale(7).setTint(0xff0000).setAngle(90);
-    boss.hp = 1500;
-    this.tweens.add({ targets: boss, y: 180, duration: 2500, ease: 'Back.easeOut' });
-    
-    bossHPBarBg = this.add.rectangle(this.scale.width/2, 100, 400, 15, 0x333333);
-    bossHPBar = this.add.rectangle(this.scale.width/2, 100, 400, 15, 0xff0000);
-
-    // 魔王瘋狂彈幕
-    this.time.addEvent({
-        delay: 1400,
-        callback: () => {
-            if (!boss.active) return;
-            for(let i=0; i<20; i++) {
-                let eb = enemyBullets.create(boss.x, boss.y, 'b1').setTint(0xff9f43);
-                this.physics.velocityFromAngle(i * 18, 300, eb.body.velocity);
-            }
-        },
-        loop: true
-    });
-
-    this.physics.add.overlap(bullets, boss, (b, bull) => {
-        bull.destroy(); boss.hp -= (fireMode === 'normal' ? 2 : 6);
-        bossHPBar.width = Math.max(0, (boss.hp / 1500) * 400);
-        if (boss.hp <= 0) gameOver.call(this, true);
-    });
+function loop(now) {
+    if (isGameOver) return;
+    let dt = (now - lastTime) / 1000;
+    lastTime = now;
+    update(dt);
+    draw();
+    requestAnimationFrame(loop);
 }
 
-function gameOver(isWin) {
-    isGameOver = true;
-    if (isWin) {
-        boss.destroy();
-        this.cameras.main.flash(2000, 255, 255, 255);
-        this.cameras.main.shake(2500, 0.1);
-        this.add.text(this.scale.width/2, this.scale.height/2, 'MISSION COMPLETE', { fontSize: '60px', fontStyle: 'bold', fill: '#00ff00', stroke: '#000', strokeThickness: 10 }).setOrigin(0.5);
-    } else {
-        this.add.text(this.scale.width/2, this.scale.height/2, 'TIME EXPIRED', { fontSize: '60px', fontStyle: 'bold', fill: '#ff0000', stroke: '#000', strokeThickness: 10 }).setOrigin(0.5);
+function update(dt) {
+    timeLeft -= dt;
+    ui.timer.innerText = Math.max(0, Math.ceil(timeLeft));
+    if (timeLeft <= 0) finish(false);
+    if (!isBossActive && timeLeft <= 75) startBoss(); // 45秒後進王
+
+    // 飛機平滑跟隨
+    player.x += (player.tx - player.x) * 0.15;
+    player.y += (player.ty - player.y) * 0.15;
+
+    // 自動射擊
+    player.cd = (player.cd || 0) - dt;
+    if (player.cd <= 0 && !isStunned) {
+        bullets.push({ x: player.x, y: player.y - 25 });
+        if (firePower >= 2) {
+            bullets.push({ x: player.x - 20, y: player.y - 10 });
+            bullets.push({ x: player.x + 20, y: player.y - 10 });
+        }
+        player.cd = 0.12;
     }
-    this.time.delayedCall(5000, () => location.reload());
+
+    // 子彈移動
+    bullets.forEach((b, i) => { b.y -= 12; if (b.y < -30) bullets.splice(i, 1); });
+    enemyBullets.forEach((b, i) => { 
+        b.x += (b.vx || 0);
+        b.y += (b.vy || 5); 
+        if (b.y > 830 || b.y < -30 || b.x > 480 || b.x < -30) enemyBullets.splice(i, 1); 
+    });
+
+    // 小兵與烏龜生成
+    if (Math.random() < 0.05) {
+        let isTurtle = Math.random() < 0.2; // 20% 機率出烏龜
+        enemies.push({ 
+            x: Math.random() * 410 + 20, y: -50, 
+            s: isTurtle ? 2 : 4, 
+            type: isTurtle ? 'turtle' : 'minion',
+            hp: isTurtle ? 5 : 1
+        });
+    }
+
+    enemies.forEach((e, i) => {
+        e.y += e.s;
+        // 普通小兵會攻擊
+        if (e.type === 'minion' && Math.random() > 0.985) {
+            let angle = Math.atan2(player.y - e.y, player.x - e.x);
+            enemyBullets.push({ x: e.x, y: e.y, vx: Math.cos(angle)*5, vy: Math.sin(angle)*5 });
+        }
+        
+        if (e.y > 830) enemies.splice(i, 1);
+        
+        // 碰撞檢測
+        if (Math.abs(e.x - player.x) < 35 && Math.abs(e.y - player.y) < 35) {
+            if (!isInvincible) triggerStun();
+            enemies.splice(i, 1);
+        }
+
+        bullets.forEach((b, bi) => {
+            if (Math.abs(b.x - e.x) < 30 && Math.abs(b.y - e.y) < 30) {
+                e.hp--; bullets.splice(bi, 1);
+                if (e.hp <= 0) {
+                    enemies.splice(i, 1);
+                    // 烏龜必掉防護罩，小兵機率掉強化
+                    if (e.type === 'turtle') items.push({ x: e.x, y: e.y, type: 'shield' });
+                    else if (Math.random() > 0.9) items.push({ x: e.x, y: e.y, type: 'power' });
+                }
+            }
+        });
+    });
+
+    // 道具邏輯
+    items.forEach((it, i) => {
+        it.y += 2;
+        if (Math.abs(it.x - player.x) < 40 && Math.abs(it.y - player.y) < 40) {
+            if (it.type === 'shield') activateShield();
+            else firePower = 2;
+            items.splice(i, 1);
+        }
+    });
+
+    // BOSS
+    if (isBossActive) {
+        if (boss.y < 160) boss.y += 2;
+        boss.x += boss.dir * 3;
+        if (boss.x > 360 || boss.x < 90) boss.dir *= -1;
+        if (Math.random() > 0.95) {
+            for(let a=0; a<3; a++) enemyBullets.push({ x: boss.x-50+a*50, y: boss.y+40, vy: 6 });
+        }
+        bullets.forEach((b, bi) => {
+            if (Math.abs(b.x - boss.x) < 90 && Math.abs(b.y - boss.y) < 60) {
+                boss.hp -= (firePower*2); bullets.splice(bi, 1);
+                ui.bossFill.style.width = (boss.hp / boss.maxHp * 100) + '%';
+                if (boss.hp <= 0) finish(true);
+            }
+        });
+    }
+
+    enemyBullets.forEach((eb, i) => {
+        if (Math.abs(eb.x - player.x) < 25 && Math.abs(eb.y - player.y) < 25) {
+            if (!isInvincible) triggerStun();
+            enemyBullets.splice(i, 1);
+        }
+    });
 }
+
+function activateShield() {
+    isInvincible = true;
+    ui.shield.style.display = 'inline';
+    setTimeout(() => {
+        isInvincible = false;
+        ui.shield.style.display = 'none';
+    }, 6000); // 無敵 6 秒
+}
+
+function draw() {
+    ctx.save();
+    if (shake > 0) {
+        ctx.translate((Math.random()-0.5)*shake, (Math.random()-0.5)*shake);
+        shake *= 0.9;
+    }
+    ctx.clearRect(0, 0, 450, 800);
+    
+    // 背景
+    ctx.fillStyle = '#050515'; ctx.fillRect(0,0,450,800);
+    ctx.fillStyle = '#112';
+    for(let i=0; i<20; i++) ctx.fillRect(Math.random()*450, (Date.now()/5 + i*100)%800, 2, 2);
+
+    if (shock > 0) {
+        ctx.beginPath(); ctx.arc(225, 400, shock, 0, Math.PI*2);
+        ctx.strokeStyle = `rgba(255,255,255,${1-shock/800})`; ctx.lineWidth = 20; ctx.stroke();
+        shock += 30; if(shock > 800) shock = 0;
+    }
+
+    // 玩家
+    if (!isStunned || Math.floor(Date.now()/100)%2) {
+        if (isInvincible) {
+            ctx.beginPath(); ctx.arc(player.x, player.y, 40, 0, Math.PI*2);
+            ctx.strokeStyle = '#3498db'; ctx.lineWidth = 3; ctx.stroke();
+            ctx.fillStyle = 'rgba(52, 152, 219, 0.2)'; ctx.fill();
+        }
+        ctx.fillStyle = '#fff'; ctx.fillRect(player.x-20, player.y-10, 40, 20);
+        ctx.fillStyle = '#f00'; ctx.fillRect(player.x-25, player.y-15, 50, 4);
+    }
+
+    ctx.fillStyle = '#0ff'; bullets.forEach(b => ctx.fillRect(b.x-2, b.y, 4, 15));
+    ctx.fillStyle = '#f0f'; enemyBullets.forEach(b => { ctx.beginPath(); ctx.arc(b.x, b.y, 6, 0, Math.PI*2); ctx.fill(); });
+
+    // 敵人
+    enemies.forEach(e => {
+        if (e.type === 'turtle') {
+            ctx.fillStyle = '#2ecc71'; ctx.beginPath(); ctx.arc(e.x, e.y, 20, 0, Math.PI*2); ctx.fill();
+            ctx.strokeStyle = '#fff'; ctx.stroke();
+        } else {
+            ctx.fillStyle = '#f44'; ctx.beginPath(); ctx.moveTo(e.x, e.y+15); ctx.lineTo(e.x-15, e.y-15); ctx.lineTo(e.x+15, e.y-15); ctx.fill();
+        }
+    });
+
+    // 道具
+    items.forEach(it => {
+        ctx.fillStyle = it.type === 'shield' ? '#3498db' : '#f1c40f';
+        ctx.beginPath(); ctx.arc(it.x, it.y, 15, 0, Math.PI*2); ctx.fill();
+        ctx.fillStyle = '#fff'; ctx.fillText(it.type === 'shield' ? '🛡️' : '🔥', it.x-8, it.y+5);
+    });
+
+    if (isBossActive) {
+        ctx.fillStyle = '#222'; ctx.fillRect(boss.x-80, boss.y-40, 160, 80);
+        ctx.fillStyle = '#f00'; ctx.fillRect(boss.x-20, boss.y-10, 40, 40);
+        ctx.strokeStyle = '#0ff'; ctx.strokeRect(boss.x-82, boss.y-42, 164, 84);
+    }
+    ctx.restore();
+
+    if (flash > 0) {
+        ctx.fillStyle = `rgba(255,255,255,${flash})`; ctx.fillRect(0,0,450,800);
+        flash -= 0.05;
+    }
+}
+
+function startBoss() {
+    isBossActive = true; nukeCount = 3; refreshNukes();
+    ui.bossBar.style.display = 'block';
+    ui.msg.innerText = '⚠️ BOSS APPEARING ⚠️'; ui.msg.style.display = 'block';
+    setTimeout(() => ui.msg.style.display = 'none', 3000);
+}
+
+function finish(win) {
+    isGameOver = true;
+    ui.msg.innerText = win ? '🏆 MISSION COMPLETE' : '❌ MISSION FAILED';
+    ui.msg.style.color = win ? '#0ff' : '#f00'; ui.msg.style.display = 'block';
+    if (win) { shake = 80; flash = 1.0; }
+    setTimeout(() => location.reload(), 5000);
+}
+
+requestAnimationFrame(loop);
 </script>
 </body>
 </html>
