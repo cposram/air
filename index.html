@@ -1,0 +1,221 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Super Bowling Go! Pro Edition</title>
+    <script src="https://cdn.jsdelivr.net/npm/phaser@3.60.0/dist/phaser-arcade-physics.min.js"></script>
+    <style>
+        body { margin: 0; background: #1a1a1a; display: flex; justify-content: center; align-items: center; height: 100vh; overflow: hidden; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
+        #game-container { box-shadow: 0 0 50px rgba(0,0,0,0.8); border-radius: 12px; overflow: hidden; position: relative; }
+        
+        /* 商業級抽卡彈窗介面 */
+        #gacha-modal {
+            display: none; position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0,0,0,0.85); z-index: 100; flex-direction: column;
+            justify-content: center; align-items: center; color: white; transition: 0.3s;
+        }
+        .card-box {
+            width: 200px; height: 280px; background: linear-gradient(135deg, #f1c40f, #e67e22);
+            border-radius: 15px; display: flex; justify-content: center; align-items: center;
+            font-size: 24px; font-weight: bold; border: 5px solid #fff; box-shadow: 0 0 20px #f1c40f;
+            animation: bounce 0.5s infinite alternate;
+        }
+        @keyframes bounce { from { transform: scale(1); } to { transform: scale(1.05); } }
+        .close-btn { margin-top: 20px; padding: 10px 30px; background: #e74c3c; border: none; color: white; border-radius: 25px; cursor: pointer; font-size: 18px; }
+        
+        /* 下方按鈕區 */
+        .ui-panel { position: absolute; bottom: 20px; width: 100%; text-align: center; pointer-events: none; }
+        .action-btn { 
+            pointer-events: auto; padding: 12px 25px; font-size: 18px; font-weight: bold;
+            background: linear-gradient(to bottom, #f39c12, #d35400); 
+            color: white; border: none; border-radius: 50px; cursor: pointer;
+            box-shadow: 0 4px 0 #8e44ad; transition: 0.1s;
+        }
+        .action-btn:active { transform: translateY(4px); box-shadow: none; }
+    </style>
+</head>
+<body>
+
+<div id="game-container">
+    <div id="gacha-modal">
+        <h2 id="gacha-title">恭喜獲得！</h2>
+        <div class="card-box" id="card-result">?</div>
+        <button class="close-btn" onclick="closeGacha()">領取獎勵</button>
+    </div>
+    
+    <div class="ui-panel">
+        <button class="action-btn" onclick="openGacha()">🎰 100金幣 幸運抽卡</button>
+    </div>
+</div>
+
+<script>
+/** 遊戲核心配置 - 自動適應手機與電腦 **/
+const config = {
+    type: Phaser.AUTO,
+    parent: 'game-container',
+    scale: {
+        mode: Phaser.Scale.FIT,
+        autoCenter: Phaser.Scale.CENTER_BOTH,
+        width: 450,
+        height: 800
+    },
+    physics: {
+        default: 'arcade',
+        arcade: { gravity: { y: 0 }, debug: false }
+    },
+    scene: { preload, create, update }
+};
+
+const game = new Phaser.Game(config);
+
+let ball, pins, coins, walls, emitter;
+let score = 0, coinCount = 0;
+let scoreText, coinText;
+let isRolling = false;
+
+function preload() {
+    // 預載資源 (建議 GitHub 專案替換成精美的 assets)
+    this.load.image('ball', 'https://labs.phaser.io/assets/sprites/shinyball.png');
+    this.load.image('pin', 'https://labs.phaser.io/assets/sprites/fuji.png');
+    this.load.image('coin', 'https://labs.phaser.io/assets/sprites/coin.png');
+    this.load.image('spark', 'https://labs.phaser.io/assets/particles/yellow.png'); // 粒子效果
+}
+
+function create() {
+    // 1. 球道視覺優化
+    this.add.rectangle(225, 400, 450, 800, 0x2c3e50); // 背景
+    this.add.rectangle(225, 400, 320, 800, 0xecf0f1); // 木質球道感
+    
+    // 2. 防掉落圍欄 (Bumpers) - 讓小朋友不會進溝
+    walls = this.physics.add.staticGroup();
+    const leftW = this.add.rectangle(60, 400, 15, 800, 0x95a5a6);
+    const rightW = this.add.rectangle(390, 400, 15, 800, 0x95a5a6);
+    walls.add(leftW); walls.add(rightW);
+
+    // 3. 粒子系統配置 (華華華吃金幣的視覺精華)
+    emitter = this.add.particles(0, 0, 'spark', {
+        speed: { min: -150, max: 150 },
+        scale: { start: 0.6, end: 0 },
+        blendMode: 'ADD',
+        lifespan: 600,
+        emitting: false
+    });
+
+    // 4. 球員配置
+    ball = this.physics.add.sprite(225, 720, 'ball').setScale(1.2);
+    ball.setCollideWorldBounds(true);
+    ball.setBounce(0.6);
+    ball.setDrag(0.98); // 增加自然摩擦力
+
+    // 5. 物體群組
+    pins = this.physics.add.group();
+    coins = this.physics.add.group();
+    resetLevel.call(this);
+
+    // 6. UI 配置 - 增加質感
+    scoreText = this.add.text(30, 30, 'SCORE: 0', { fontSize: '28px', fontStyle: 'bold', fill: '#fff', stroke: '#000', strokeThickness: 5 });
+    coinText = this.add.text(30, 70, 'GOLD: 0', { fontSize: '28px', fontStyle: 'bold', fill: '#f1c40f', stroke: '#000', strokeThickness: 5 });
+
+    // 7. 碰撞邏輯
+    this.physics.add.collider(ball, walls);
+    this.physics.add.collider(ball, pins, hitPins, null, this);
+    this.physics.add.overlap(ball, coins, collectCoin, null, this);
+
+    // 8. 操作邏輯
+    this.input.on('pointerdown', (pointer) => {
+        if (!isRolling) {
+            const angle = Phaser.Math.Angle.Between(ball.x, ball.y, pointer.x, pointer.y);
+            this.physics.velocityFromRotation(angle, 800, ball.body.velocity);
+            isRolling = true;
+            // 增加發射時的縮放感
+            this.tweens.add({ targets: ball, scale: 1.4, duration: 200, yoyo: true });
+        }
+    });
+
+    // 循環檢查
+    this.time.addEvent({ delay: 3000, callback: checkReset, callbackScope: this, loop: true });
+}
+
+function update() {
+    // 球旋轉效果，讓細緻度提升
+    if (isRolling) {
+        ball.angle += ball.body.velocity.x * 0.1;
+    }
+}
+
+function collectCoin(ball, coin) {
+    // 視覺回饋：噴射粒子
+    emitter.emitParticleAt(coin.x, coin.y, 15);
+    coin.destroy();
+    
+    coinCount += 20;
+    coinText.setText('GOLD: ' + coinCount);
+    
+    // UI 跳動動畫
+    this.tweens.add({ targets: coinText, scale: 1.2, duration: 100, yoyo: true });
+}
+
+function hitPins(ball, pin) {
+    // 視覺回饋：鏡頭震動 (打擊感核心)
+    this.cameras.main.shake(150, 0.015);
+    
+    pin.destroy();
+    score += 100;
+    scoreText.setText('SCORE: ' + score);
+    this.tweens.add({ targets: scoreText, scale: 1.2, duration: 100, yoyo: true });
+}
+
+function checkReset() {
+    if (isRolling && ball.body.speed < 20) {
+        this.tweens.add({
+            targets: ball,
+            x: 225, y: 720,
+            duration: 500,
+            ease: 'Power2',
+            onComplete: () => {
+                ball.setVelocity(0, 0);
+                isRolling = false;
+                if (pins.countActive() === 0) resetLevel.call(this);
+            }
+        });
+    }
+}
+
+function resetLevel() {
+    // 清除舊物
+    pins.clear(true, true);
+    coins.clear(true, true);
+    
+    // 隨機關卡排列
+    for (let i = 0; i < 6; i++) {
+        pins.create(Phaser.Math.Between(100, 350), Phaser.Math.Between(100, 300), 'pin');
+    }
+    for (let i = 0; i < 4; i++) {
+        coins.create(Phaser.Math.Between(100, 350), Phaser.Math.Between(350, 550), 'coin');
+    }
+}
+
+/** 商業介面控制 **/
+function openGacha() {
+    if (coinCount >= 100) {
+        coinCount -= 100;
+        document.getElementById('coin-display')?.innerText; // 這裡可以更新 UI
+        const rewards = ['🔥 火焰球', '⚡️ 閃電球', '💎 鑽石瓶', '🌟 無敵護欄'];
+        const result = rewards[Math.floor(Math.random() * rewards.length)];
+        
+        document.getElementById('card-result').innerText = result;
+        document.getElementById('gacha-modal').style.display = 'flex';
+    } else {
+        alert("金幣不足！快去吃更多金幣吧！");
+    }
+}
+
+function closeGacha() {
+    document.getElementById('gacha-modal').style.display = 'none';
+    // 這裡可以根據結果改變球的外觀或屬性
+}
+</script>
+
+</body>
+</html>
