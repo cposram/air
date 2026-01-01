@@ -3,219 +3,263 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Super Bowling Go! Pro Edition</title>
+    <title>天空小奇兵 - Super Pilot Web</title>
     <script src="https://cdn.jsdelivr.net/npm/phaser@3.60.0/dist/phaser-arcade-physics.min.js"></script>
     <style>
-        body { margin: 0; background: #1a1a1a; display: flex; justify-content: center; align-items: center; height: 100vh; overflow: hidden; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
-        #game-container { box-shadow: 0 0 50px rgba(0,0,0,0.8); border-radius: 12px; overflow: hidden; position: relative; }
-        
-        /* 商業級抽卡彈窗介面 */
-        #gacha-modal {
-            display: none; position: absolute; top: 0; left: 0; width: 100%; height: 100%;
-            background: rgba(0,0,0,0.85); z-index: 100; flex-direction: column;
-            justify-content: center; align-items: center; color: white; transition: 0.3s;
-        }
-        .card-box {
-            width: 200px; height: 280px; background: linear-gradient(135deg, #f1c40f, #e67e22);
-            border-radius: 15px; display: flex; justify-content: center; align-items: center;
-            font-size: 24px; font-weight: bold; border: 5px solid #fff; box-shadow: 0 0 20px #f1c40f;
-            animation: bounce 0.5s infinite alternate;
-        }
-        @keyframes bounce { from { transform: scale(1); } to { transform: scale(1.05); } }
-        .close-btn { margin-top: 20px; padding: 10px 30px; background: #e74c3c; border: none; color: white; border-radius: 25px; cursor: pointer; font-size: 18px; }
-        
-        /* 下方按鈕區 */
-        .ui-panel { position: absolute; bottom: 20px; width: 100%; text-align: center; pointer-events: none; }
-        .action-btn { 
-            pointer-events: auto; padding: 12px 25px; font-size: 18px; font-weight: bold;
-            background: linear-gradient(to bottom, #f39c12, #d35400); 
-            color: white; border: none; border-radius: 50px; cursor: pointer;
-            box-shadow: 0 4px 0 #8e44ad; transition: 0.1s;
-        }
-        .action-btn:active { transform: translateY(4px); box-shadow: none; }
+        body { margin: 0; background: #000; overflow: hidden; display: flex; justify-content: center; align-items: center; height: 100vh; }
+        #game-container { box-shadow: 0 0 20px rgba(0,0,0,0.5); }
     </style>
 </head>
 <body>
-
-<div id="game-container">
-    <div id="gacha-modal">
-        <h2 id="gacha-title">恭喜獲得！</h2>
-        <div class="card-box" id="card-result">?</div>
-        <button class="close-btn" onclick="closeGacha()">領取獎勵</button>
-    </div>
-    
-    <div class="ui-panel">
-        <button class="action-btn" onclick="openGacha()">🎰 100金幣 幸運抽卡</button>
-    </div>
-</div>
+    <div id="game-container"></div>
 
 <script>
-/** 遊戲核心配置 - 自動適應手機與電腦 **/
+/**
+ * 遊戲設定與全域變數
+ */
 const config = {
     type: Phaser.AUTO,
     parent: 'game-container',
+    width: 450,
+    height: 800,
     scale: {
         mode: Phaser.Scale.FIT,
-        autoCenter: Phaser.Scale.CENTER_BOTH,
-        width: 450,
-        height: 800
+        autoCenter: Phaser.Scale.CENTER_BOTH
     },
     physics: {
         default: 'arcade',
         arcade: { gravity: { y: 0 }, debug: false }
     },
-    scene: { preload, create, update }
+    scene: [BootScene, SelectScene, StageScene, PlayScene]
+};
+
+let gameState = {
+    selectedChar: 'red', // 'red' or 'purple'
+    selectedStage: 'canyon', // 'plain', 'ocean', 'canyon'
+    nukes: 3,
+    score: 0
 };
 
 const game = new Phaser.Game(config);
 
-let ball, pins, coins, walls, emitter;
-let score = 0, coinCount = 0;
-let scoreText, coinText;
-let isRolling = false;
-
-function preload() {
-    // 預載資源 (建議 GitHub 專案替換成精美的 assets)
-    this.load.image('ball', 'https://labs.phaser.io/assets/sprites/shinyball.png');
-    this.load.image('pin', 'https://labs.phaser.io/assets/sprites/fuji.png');
-    this.load.image('coin', 'https://labs.phaser.io/assets/sprites/coin.png');
-    this.load.image('spark', 'https://labs.phaser.io/assets/particles/yellow.png'); // 粒子效果
+/** 1. 資源載入場景 **/
+class BootScene extends Phaser.Scene {
+    constructor() { super('BootScene'); }
+    preload() {
+        this.add.text(225, 400, 'Loading...', { fontSize: '32px', fill: '#fff' }).setOrigin(0.5);
+        // 使用 Placeholder 模擬圖形，正式發布建議替換成真實圖片
+        this.load.image('bullet', 'https://labs.phaser.io/assets/sprites/bullets/bullet1.png');
+        this.load.image('nuke_icon', 'https://labs.phaser.io/assets/sprites/fuji.png'); // 模擬核彈圖示
+        this.load.image('spark', 'https://labs.phaser.io/assets/particles/blue.png');
+    }
+    create() { this.scene.start('SelectScene'); }
 }
 
-function create() {
-    // 1. 球道視覺優化
-    this.add.rectangle(225, 400, 450, 800, 0x2c3e50); // 背景
-    this.add.rectangle(225, 400, 320, 800, 0xecf0f1); // 木質球道感
-    
-    // 2. 防掉落圍欄 (Bumpers) - 讓小朋友不會進溝
-    walls = this.physics.add.staticGroup();
-    const leftW = this.add.rectangle(60, 400, 15, 800, 0x95a5a6);
-    const rightW = this.add.rectangle(390, 400, 15, 800, 0x95a5a6);
-    walls.add(leftW); walls.add(rightW);
+/** 2. 角色選擇場景 **/
+class SelectScene extends Phaser.Scene {
+    constructor() { super('SelectScene'); }
+    create() {
+        this.add.text(225, 100, '請選擇角色', { fontSize: '40px', fontStyle: 'bold', fill: '#fff' }).setOrigin(0.5);
+        
+        const redBtn = this.add.text(225, 300, '🚁 紅色救護兵 (攻速型)', { fontSize: '28px', backgroundColor: '#e74c3c', padding: 15 }).setOrigin(0.5).setInteractive();
+        const purpleBtn = this.add.text(225, 450, '🚁 紫色醫療兵 (範圍型)', { fontSize: '28px', backgroundColor: '#8e44ad', padding: 15 }).setOrigin(0.5).setInteractive();
 
-    // 3. 粒子系統配置 (華華華吃金幣的視覺精華)
-    emitter = this.add.particles(0, 0, 'spark', {
-        speed: { min: -150, max: 150 },
-        scale: { start: 0.6, end: 0 },
-        blendMode: 'ADD',
-        lifespan: 600,
-        emitting: false
-    });
-
-    // 4. 球員配置
-    ball = this.physics.add.sprite(225, 720, 'ball').setScale(1.2);
-    ball.setCollideWorldBounds(true);
-    ball.setBounce(0.6);
-    ball.setDrag(0.98); // 增加自然摩擦力
-
-    // 5. 物體群組
-    pins = this.physics.add.group();
-    coins = this.physics.add.group();
-    resetLevel.call(this);
-
-    // 6. UI 配置 - 增加質感
-    scoreText = this.add.text(30, 30, 'SCORE: 0', { fontSize: '28px', fontStyle: 'bold', fill: '#fff', stroke: '#000', strokeThickness: 5 });
-    coinText = this.add.text(30, 70, 'GOLD: 0', { fontSize: '28px', fontStyle: 'bold', fill: '#f1c40f', stroke: '#000', strokeThickness: 5 });
-
-    // 7. 碰撞邏輯
-    this.physics.add.collider(ball, walls);
-    this.physics.add.collider(ball, pins, hitPins, null, this);
-    this.physics.add.overlap(ball, coins, collectCoin, null, this);
-
-    // 8. 操作邏輯
-    this.input.on('pointerdown', (pointer) => {
-        if (!isRolling) {
-            const angle = Phaser.Math.Angle.Between(ball.x, ball.y, pointer.x, pointer.y);
-            this.physics.velocityFromRotation(angle, 800, ball.body.velocity);
-            isRolling = true;
-            // 增加發射時的縮放感
-            this.tweens.add({ targets: ball, scale: 1.4, duration: 200, yoyo: true });
-        }
-    });
-
-    // 循環檢查
-    this.time.addEvent({ delay: 3000, callback: checkReset, callbackScope: this, loop: true });
-}
-
-function update() {
-    // 球旋轉效果，讓細緻度提升
-    if (isRolling) {
-        ball.angle += ball.body.velocity.x * 0.1;
+        redBtn.on('pointerdown', () => { gameState.selectedChar = 'red'; this.scene.start('StageScene'); });
+        purpleBtn.on('pointerdown', () => { gameState.selectedChar = 'purple'; this.scene.start('StageScene'); });
     }
 }
 
-function collectCoin(ball, coin) {
-    // 視覺回饋：噴射粒子
-    emitter.emitParticleAt(coin.x, coin.y, 15);
-    coin.destroy();
-    
-    coinCount += 20;
-    coinText.setText('GOLD: ' + coinCount);
-    
-    // UI 跳動動畫
-    this.tweens.add({ targets: coinText, scale: 1.2, duration: 100, yoyo: true });
-}
+/** 3. 關卡選擇場景 **/
+class StageScene extends Phaser.Scene {
+    constructor() { super('StageScene'); }
+    create() {
+        this.add.text(225, 100, '選擇關卡', { fontSize: '40px', fill: '#fff' }).setOrigin(0.5);
+        const stages = [
+            { id: 'plain', name: '🌾 平原關', color: '#27ae60' },
+            { id: 'ocean', name: '🌊 海洋關', color: '#2980b9' },
+            { id: 'canyon', name: '🏜 峽谷關', color: '#d35400' }
+        ];
 
-function hitPins(ball, pin) {
-    // 視覺回饋：鏡頭震動 (打擊感核心)
-    this.cameras.main.shake(150, 0.015);
-    
-    pin.destroy();
-    score += 100;
-    scoreText.setText('SCORE: ' + score);
-    this.tweens.add({ targets: scoreText, scale: 1.2, duration: 100, yoyo: true });
-}
-
-function checkReset() {
-    if (isRolling && ball.body.speed < 20) {
-        this.tweens.add({
-            targets: ball,
-            x: 225, y: 720,
-            duration: 500,
-            ease: 'Power2',
-            onComplete: () => {
-                ball.setVelocity(0, 0);
-                isRolling = false;
-                if (pins.countActive() === 0) resetLevel.call(this);
-            }
+        stages.forEach((s, i) => {
+            let btn = this.add.text(225, 250 + (i * 120), s.name, { fontSize: '32px', backgroundColor: s.color, padding: 20 }).setOrigin(0.5).setInteractive();
+            btn.on('pointerdown', () => { gameState.selectedStage = s.id; this.scene.start('PlayScene'); });
         });
     }
 }
 
-function resetLevel() {
-    // 清除舊物
-    pins.clear(true, true);
-    coins.clear(true, true);
-    
-    // 隨機關卡排列
-    for (let i = 0; i < 6; i++) {
-        pins.create(Phaser.Math.Between(100, 350), Phaser.Math.Between(100, 300), 'pin');
-    }
-    for (let i = 0; i < 4; i++) {
-        coins.create(Phaser.Math.Between(100, 350), Phaser.Math.Between(350, 550), 'coin');
-    }
-}
+/** 4. 主遊戲場景 **/
+class PlayScene extends Phaser.Scene {
+    constructor() { super('PlayScene'); }
 
-/** 商業介面控制 **/
-function openGacha() {
-    if (coinCount >= 100) {
-        coinCount -= 100;
-        document.getElementById('coin-display')?.innerText; // 這裡可以更新 UI
-        const rewards = ['🔥 火焰球', '⚡️ 閃電球', '💎 鑽石瓶', '🌟 無敵護欄'];
-        const result = rewards[Math.floor(Math.random() * rewards.length)];
+    create() {
+        const { width, height } = this.scale;
+        this.isBossTime = false;
+        gameState.nukes = 3;
+
+        // 背景
+        const bgColors = { plain: 0x2ecc71, ocean: 0x3498db, canyon: 0xe67e22 };
+        this.bg = this.add.tileSprite(width/2, height/2, width, height, 'spark').setTint(bgColors[gameState.selectedStage] || 0x34495e);
+
+        // 玩家飛機
+        this.player = this.physics.add.sprite(width / 2, height - 100, 'nuke_icon').setScale(1.5);
+        this.player.setTint(gameState.selectedChar === 'red' ? 0xff0000 : 0xcc00ff);
+        this.player.setCollideWorldBounds(true);
+
+        // 群組
+        this.bullets = this.physics.add.group();
+        this.enemies = this.physics.add.group();
+        this.bossGroup = this.physics.add.group();
+
+        // 鍵盤與滑鼠
+        this.cursors = this.input.keyboard.createCursorKeys();
         
-        document.getElementById('card-result').innerText = result;
-        document.getElementById('gacha-modal').style.display = 'flex';
-    } else {
-        alert("金幣不足！快去吃更多金幣吧！");
+        // 自動連射
+        this.time.addEvent({
+            delay: 150,
+            callback: () => { if(this.input.activePointer.isDown) this.fire(); },
+            loop: true
+        });
+
+        // 敵人生成
+        this.spawnTimer = this.time.addEvent({
+            delay: 1000,
+            callback: this.spawnEnemy,
+            callbackScope: this,
+            loop: true
+        });
+
+        // UI: 核彈與分數
+        this.scoreLabel = this.add.text(20, 20, 'SCORE: 0', { fontSize: '24px', fill: '#fff', stroke: '#000', strokeThickness: 4 });
+        this.nukeUI = this.add.group();
+        this.updateNukeUI();
+
+        // 碰撞
+        this.physics.add.overlap(this.bullets, this.enemies, (bullet, enemy) => {
+            enemy.destroy(); bullet.destroy();
+            gameState.score += 100;
+            this.scoreLabel.setText('SCORE: ' + gameState.score);
+        });
+
+        // 遊戲流程控制：20秒後出 Boss
+        this.time.delayedCall(20000, this.prepareBoss, [], this);
+    }
+
+    update() {
+        this.bg.tilePositionY -= 2;
+
+        // 玩家移動
+        const speed = 300;
+        this.player.setVelocity(0);
+        if (this.cursors.left.isDown) this.player.setVelocityX(-speed);
+        else if (this.cursors.right.isDown) this.player.setVelocityX(speed);
+        if (this.cursors.up.isDown) this.player.setVelocityY(-speed);
+        else if (this.cursors.down.isDown) this.player.setVelocityY(speed);
+    }
+
+    fire() {
+        let b = this.bullets.create(this.player.x, this.player.y - 20, 'bullet');
+        b.setVelocityY(-600);
+        b.setTint(0xf1c40f);
+    }
+
+    spawnEnemy() {
+        if (this.isBossTime) return;
+        let x = Phaser.Math.Between(50, 400);
+        let e = this.enemies.create(x, -50, 'nuke_icon').setTint(0x00ff00);
+        e.setVelocityY(Phaser.Math.Between(150, 300));
+    }
+
+    updateNukeUI() {
+        this.nukeUI.clear(true, true);
+        for (let i = 0; i < gameState.nukes; i++) {
+            let n = this.add.image(400 - (i * 45), 40, 'nuke_icon').setScale(0.8).setInteractive();
+            n.setTint(0xffd700);
+            n.on('pointerdown', () => this.useNuke());
+            this.nukeUI.add(n);
+        }
+    }
+
+    useNuke() {
+        if (gameState.nukes <= 0) return;
+        gameState.nukes--;
+        this.updateNukeUI();
+
+        // 毀滅性核彈視覺效果
+        this.cameras.main.flash(500, 255, 255, 255);
+        this.cameras.main.shake(500, 0.05);
+        
+        // 清除所有畫面上小兵
+        this.enemies.getChildren().forEach(e => {
+            this.add.particles(e.x, e.y, 'spark', { speed: 100, scale: { start: 1, end: 0 }, lifespan: 500, duration: 200 });
+        });
+        this.enemies.clear(true, true);
+
+        // 如果是 Boss，扣大量血
+        if (this.boss) {
+            this.boss.hp -= 30;
+            this.updateBossHP();
+        }
+    }
+
+    prepareBoss() {
+        this.isBossTime = true;
+        this.spawnTimer.remove();
+        
+        // 獎勵核彈
+        gameState.nukes = Math.min(gameState.nukes + 1, 5);
+        this.updateNukeUI();
+        
+        const msg = this.add.text(225, 400, '⚠️ WARNING: BOSS APPEARING!', { fontSize: '32px', fill: '#ff0000', fontStyle: 'bold' }).setOrigin(0.5);
+        this.tweens.add({ targets: msg, alpha: 0, duration: 500, yoyo: true, repeat: 3, onComplete: () => {
+            msg.destroy();
+            this.startBoss();
+        }});
+    }
+
+    startBoss() {
+        this.boss = this.physics.add.sprite(225, -100, 'nuke_icon').setScale(4).setTint(0x333333);
+        this.boss.hp = 100;
+        this.physics.add.existing(this.boss);
+        
+        // Boss 入場
+        this.tweens.add({ targets: this.boss, y: 150, duration: 2000, ease: 'Power2' });
+
+        // Boss HP 條
+        this.hpBarBg = this.add.rectangle(225, 250, 300, 20, 0x666666);
+        this.hpBar = this.add.rectangle(225, 250, 300, 20, 0xff0000);
+
+        // Boss 攻擊邏輯
+        this.time.addEvent({
+            delay: 2000,
+            callback: () => {
+                if (!this.boss || this.boss.hp <= 0) return;
+                this.tweens.add({ targets: this.boss, x: Phaser.Math.Between(100, 350), duration: 1000 });
+            },
+            loop: true
+        });
+
+        this.physics.add.overlap(this.bullets, this.boss, (boss, bullet) => {
+            bullet.destroy();
+            this.boss.hp -= 1;
+            this.updateBossHP();
+        });
+    }
+
+    updateBossHP() {
+        if (!this.boss) return;
+        const width = Math.max(0, (this.boss.hp / 100) * 300);
+        this.hpBar.width = width;
+
+        if (this.boss.hp <= 0) {
+            this.boss.destroy();
+            this.hpBar.destroy();
+            this.hpBarBg.destroy();
+            this.add.text(225, 400, 'MISSION COMPLETE!', { fontSize: '48px', fill: '#f1c40f' }).setOrigin(0.5);
+            this.time.delayedCall(3000, () => this.scene.start('SelectScene'));
+        }
     }
 }
 
-function closeGacha() {
-    document.getElementById('gacha-modal').style.display = 'none';
-    // 這裡可以根據結果改變球的外觀或屬性
-}
 </script>
-
 </body>
 </html>
