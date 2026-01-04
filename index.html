@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Super Pilot: Nightmare Mode</title>
+    <title>Super Pilot: Hellfire</title>
     <style>
         body { margin: 0; background: #000; overflow: hidden; display: flex; justify-content: center; align-items: center; height: 100vh; font-family: 'Arial Black', sans-serif; touch-action: none; }
         #game-container { position: relative; width: 100%; height: 100%; max-width: 480px; background: #111; overflow: hidden; }
@@ -43,19 +43,21 @@
         }
         @keyframes pulseText { from { transform: scale(1); } to { transform: scale(1.1); } }
 
-        #victory-screen { 
+        /* 通用結算畫面 (勝利/失敗) */
+        #end-screen { 
             position: absolute; top: 0; left: 0; width: 100%; height: 100%; 
-            background: rgba(0,0,0,0.85); display: none; flex-direction: column; 
+            background: rgba(0,0,0,0.9); display: none; flex-direction: column; 
             justify-content: center; align-items: center; z-index: 100; pointer-events: auto;
         }
-        .champ-title { font-size: 50px; color: gold; text-shadow: 0 0 20px orange; margin-bottom: 20px; animation: glow 1s infinite alternate; }
-        @keyframes glow { from { text-shadow: 0 0 10px gold; } to { text-shadow: 0 0 30px red; } }
+        #end-title { font-size: 50px; margin-bottom: 20px; animation: glow 1s infinite alternate; }
+        #end-desc { color:white; font-size:20px; margin-bottom: 40px; }
         
-        #restart-btn {
-            background: #666; color: #fff; border: 2px solid #888; 
-            padding: 10px 20px; font-size: 14px; cursor: pointer; border-radius: 5px;
-            margin-top: 50px; font-family: sans-serif;
+        .btn-restart {
+            background: #444; color: #fff; border: 2px solid #fff; 
+            padding: 15px 30px; font-size: 18px; cursor: pointer; border-radius: 50px;
+            font-family: sans-serif; font-weight: bold; transition: all 0.2s;
         }
+        .btn-restart:active { background: #fff; color: #000; transform: scale(0.95); }
         
         #debug { position: absolute; bottom: 10px; left: 10px; color: #ff5555; font-size: 12px; font-family: monospace; background: rgba(0,0,0,0.5); padding: 5px; display: none; }
     </style>
@@ -78,10 +80,10 @@
             <div id="debug">Loading...</div>
         </div>
 
-        <div id="victory-screen">
-            <div class="champ-title">🏆 CHAMPION</div>
-            <div style="color:white; font-size:20px;">MISSION COMPLETE</div>
-            <button id="restart-btn" onclick="restartGame()">再玩一局</button>
+        <div id="end-screen">
+            <div id="end-title">TITLE</div>
+            <div id="end-desc">Description</div>
+            <button class="btn-restart" onclick="restartGame()">再挑戰一次</button>
         </div>
     </div>
 
@@ -99,7 +101,9 @@ const ui = {
     vfx: document.getElementById('vfx-layer'),
     nukeGif: document.getElementById('nuke-gif'),
     flash: document.getElementById('flash-layer'),
-    victory: document.getElementById('victory-screen'),
+    endScreen: document.getElementById('end-screen'),
+    endTitle: document.getElementById('end-title'),
+    endDesc: document.getElementById('end-desc'),
     debug: document.getElementById('debug')
 };
 
@@ -199,7 +203,7 @@ function startGame() {
     gameState.boss = null;
     gameState.particles = [];
     
-    ui.victory.style.display = 'none';
+    ui.endScreen.style.display = 'none';
     ui.bossBar.style.display = 'none';
     
     showMsg("MISSION START", "#0ff");
@@ -273,9 +277,9 @@ function update(dt) {
             enterBossPhase();
         }
     } else {
-        if(gameState.boss) {
-            showMsg("TIME FAIL", "#f00");
-            gameState.gameOver = true;
+        // === 0秒失敗邏輯 ===
+        if(gameState.boss && !gameState.gameOver) {
+            showEndScreen(false); // 失敗
         }
     }
 
@@ -340,15 +344,24 @@ function update(dt) {
             b.shootTimer = 0.8;
         }
 
+        // 大招邏輯：每 5 秒一次 (Super)
         b.superTimer -= dt;
         if(b.superTimer <= 0) {
             fireBossSuper(b.x, b.y);
-            b.superTimer = 5.0; // 5秒冷卻
+            b.superTimer = 5.0; 
             showMsg("SUPER ATTACK!", "#f00");
         }
 
+        // === 新增：大大招 (Mega) 每 10 秒一次 ===
+        b.megaTimer -= dt;
+        if(b.megaTimer <= 0) {
+            fireBossMega(b.x, b.y);
+            b.megaTimer = 10.0;
+            showMsg("MEGA BLAST!", "#f0f");
+        }
+
         ui.bossFill.style.width = (b.hp / b.maxHp * 100) + "%";
-        if(b.hp <= 0) winGame();
+        if(b.hp <= 0) showEndScreen(true); // 勝利
     }
 
     updateEntities(dt);
@@ -356,7 +369,8 @@ function update(dt) {
 }
 
 function fireBossSuper(bx, by) {
-    const count = 36; 
+    // 5秒一次的擴散彈 (360度)
+    const count = 30; 
     for(let i=0; i<count; i++) {
         const angle = (Math.PI * 2 / count) * i;
         const speed = 350;
@@ -367,7 +381,31 @@ function fireBossSuper(bx, by) {
             source: 'boss'
         });
     }
-    gameState.shake = 20;
+    gameState.shake = 15;
+}
+
+function fireBossMega(bx, by) {
+    // === 10秒一次的密集彈幕 (幾乎必中) ===
+    // 兩圈：一圈快，一圈慢，極高密度
+    const count = 50; 
+    for(let i=0; i<count; i++) {
+        const angle = (Math.PI * 2 / count) * i;
+        // 快圈
+        gameState.enemyBullets.push({
+            x: bx, y: by + 50,
+            vx: Math.cos(angle) * 450,
+            vy: Math.sin(angle) * 450,
+            source: 'boss'
+        });
+        // 慢圈 (錯開角度)
+        gameState.enemyBullets.push({
+            x: bx, y: by + 50,
+            vx: Math.cos(angle + 0.05) * 300,
+            vy: Math.sin(angle + 0.05) * 300,
+            source: 'boss'
+        });
+    }
+    gameState.shake = 30; // 劇烈震動
 }
 
 function enterBossPhase() {
@@ -390,12 +428,31 @@ function enterBossPhase() {
         gameState.boss = {
             x: canvas.width/2, y: -150,
             w: 200, h: 150,
-            hp: 3600, maxHp: 3600, // 增強血量至 3600
+            hp: 3600, maxHp: 3600,
             dir: 1, shootTimer: 0,
-            superTimer: 5.0
+            superTimer: 5.0,
+            megaTimer: 10.0 // 大大招計時器
         };
         ui.bossBar.style.display = 'block';
     }, 2000);
+}
+
+function showEndScreen(isWin) {
+    gameState.gameOver = true;
+    gameState.boss = null;
+    
+    ui.endScreen.style.display = 'flex';
+    if(isWin) {
+        ui.endTitle.innerText = "🏆 CHAMPION";
+        ui.endTitle.style.color = "gold";
+        ui.endTitle.style.textShadow = "0 0 20px orange";
+        ui.endDesc.innerText = "MISSION COMPLETE";
+    } else {
+        ui.endTitle.innerText = "☠️ TIME OVER";
+        ui.endTitle.style.color = "red";
+        ui.endTitle.style.textShadow = "0 0 20px darkred";
+        ui.endDesc.innerText = "MISSION FAILED";
+    }
 }
 
 function updateEntities(dt) {
@@ -508,12 +565,6 @@ function createExplosion(x, y, color) {
 
 function spawnItem(x, y) {
     gameState.items.push({ x:x, y:y, type: Math.random()>0.5?'shield':'power' });
-}
-
-function winGame() {
-    gameState.boss = null;
-    gameState.gameOver = true;
-    ui.victory.style.display = 'flex';
 }
 
 function restartGame() {
