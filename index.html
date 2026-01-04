@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Super Pilot: Final Pacing</title>
+    <title>Super Pilot: Balanced Nuke</title>
     <style>
         body { margin: 0; background: #000; overflow: hidden; display: flex; justify-content: center; align-items: center; height: 100vh; font-family: 'Arial Black', sans-serif; touch-action: none; }
         #game-container { position: relative; width: 100%; height: 100%; max-width: 480px; background: #111; overflow: hidden; }
@@ -257,12 +257,14 @@ function fireNuke() {
         gameState.nukeActive = false; 
 
         if(gameState.boss) {
-            // 核彈傷害計算 (基於剩餘50秒Boss戰)
+            // === 核彈傷害計算：100 ~ 250 ===
             let timeLeftInBoss = Math.min(50, gameState.totalTime);
-            let timeFactor = (50 - timeLeftInBoss) / 50; 
+            let timeFactor = (50 - timeLeftInBoss) / 50; // 0 ~ 1
             
-            let damage = 100 + (timeFactor * 300); // 100 ~ 400
+            // 基礎 100 + 加成 150 = 最大 250
+            let damage = 100 + (timeFactor * 150); 
             damage = Math.floor(damage);
+            
             gameState.boss.hp -= damage;
             gameState.boss.y = Math.max(50, gameState.boss.y - 30);
             showMsg(`NUKE HIT: -${damage}`, "#ff0");
@@ -305,15 +307,15 @@ function update(dt) {
     shootTimer -= dt;
     if(shootTimer <= 0 && p.stunTimer <= 0) {
         if(gameState.powerLevel === 1) {
-            // 單發 (小兵戰預設 / Boss戰初始)
+            // 單發
             gameState.bullets.push({x: p.x, y: p.y-30, vx:0, vy:-800});
         } else if (gameState.powerLevel === 2) {
-            // 三發 (小兵戰吃到道具)
+            // 三發
             gameState.bullets.push({x: p.x, y: p.y-30, vx:0, vy:-800});
             gameState.bullets.push({x: p.x-15, y: p.y-20, vx:-200, vy:-750});
             gameState.bullets.push({x: p.x+15, y: p.y-20, vx:200, vy:-750});
         } else if (gameState.powerLevel >= 3) {
-            // 五連發 (Boss戰吃到道具才會有)
+            // 五連發 (Boss戰火力全開)
             gameState.bullets.push({x: p.x, y: p.y-30, vx:0, vy:-800}); // 中
             gameState.bullets.push({x: p.x-10, y: p.y-20, vx:-150, vy:-780}); // 左1
             gameState.bullets.push({x: p.x+10, y: p.y-20, vx:150, vy:-780});  // 右1
@@ -562,7 +564,6 @@ function checkCollisions() {
         tryStunPlayer('boss');
     }
 
-    // === 吃到道具邏輯修正 ===
     gameState.items = gameState.items.filter(i => {
         if(dist(i, gameState.player) < 40) {
             if(i.type === 'shield') gameState.shieldTime = 5;
@@ -588,7 +589,8 @@ function tryStunPlayer(source) {
     if (source === 'boss_mega') {
         chance = 0.4; 
     } else if (source === 'boss') {
-        chance = 0.3; // Boss 普攻 30%
+        chance = 0.3; // Boss 普攻 30% 機率
+        duration = 0.8; // 0.8秒 暈眩
     } else {
         chance = 0.1; // 小兵
         duration = 0.2; 
