@@ -292,7 +292,7 @@ function fireNuke() {
             let timeLeftInBoss = Math.min(50, gameState.totalTime);
             let timeFactor = (50 - timeLeftInBoss) / 50; 
             
-            let damage = 80 + (timeFactor * 600); 
+            let damage = 80 + (timeFactor * 400); 
             damage = Math.floor(damage);
             
             gameState.boss.hp -= damage;
@@ -490,7 +490,7 @@ function enterBossPhase() {
             targetX: canvas.width/2, targetY: 150, 
             moveTimer: 0,
             w: 200, h: 150,
-            hp: 5600, maxHp: 5600, // 5600 HP Challenge
+            hp: 6000, maxHp: 6000, // 6000 HP Challenge
             dir: 1, shootTimer: 0,
             superTimer: 5.0,
             megaTimer: 10.0,
