@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Super Pilot: Final Firepower</title>
+    <title>Super Pilot: Final Pacing</title>
     <style>
         body { margin: 0; background: #000; overflow: hidden; display: flex; justify-content: center; align-items: center; height: 100vh; font-family: 'Arial Black', sans-serif; touch-action: none; }
         #game-container { position: relative; width: 100%; height: 100%; max-width: 480px; background: #111; overflow: hidden; }
@@ -70,7 +70,7 @@
 
         <div id="ui">
             <div class="hud-text">
-                TIME: <span id="timer" style="color:#0ff; font-size: 24px;">90</span>s<br>
+                TIME: <span id="timer" style="color:#0ff; font-size: 24px;">70</span>s<br>
                 <span id="shield-txt" style="color:#0f0; display:none;">🛡️ SHIELD ACTIVE</span>
             </div>
             <div id="nuke-container"></div>
@@ -165,7 +165,7 @@ setTimeout(() => {
 // === 3. 遊戲核心 ===
 let gameState = {
     phase: 1, 
-    totalTime: 90, // 總時間 90秒 (30s 小兵 + 60s Boss)
+    totalTime: 70, // 總時間 70秒 (20s 小兵 + 50s Boss)
     nukes: 3,
     lastNukeTime: 0,
     nukeActive: false, 
@@ -178,7 +178,7 @@ let gameState = {
     items: [],
     particles: [],
     boss: null,
-    powerLevel: 1, // 1:單發, 2:三發, 3:五發(Boss階段專屬)
+    powerLevel: 1, 
     shieldTime: 0,
     lastTime: 0
 };
@@ -190,7 +190,7 @@ function startGame() {
     gameStarted = true;
 
     gameState.phase = 1;
-    gameState.totalTime = 90;
+    gameState.totalTime = 70;
     gameState.nukes = 3;
     gameState.nukeActive = false;
     gameState.gameOver = false;
@@ -257,11 +257,9 @@ function fireNuke() {
         gameState.nukeActive = false; 
 
         if(gameState.boss) {
-            // 時間係數計算 (基於剩餘60秒Boss戰)
-            // 當 totalTime = 60 (剛進Boss) -> timeFactor = 0 -> 傷害 100
-            // 當 totalTime = 0 (結束) -> timeFactor = 1 -> 傷害 400
-            let timeLeftInBoss = Math.min(60, gameState.totalTime);
-            let timeFactor = (60 - timeLeftInBoss) / 60; 
+            // 核彈傷害計算 (基於剩餘50秒Boss戰)
+            let timeLeftInBoss = Math.min(50, gameState.totalTime);
+            let timeFactor = (50 - timeLeftInBoss) / 50; 
             
             let damage = 100 + (timeFactor * 300); // 100 ~ 400
             damage = Math.floor(damage);
@@ -285,8 +283,8 @@ function update(dt) {
         gameState.totalTime -= dt;
         ui.timer.innerText = Math.ceil(gameState.totalTime);
 
-        // 90秒總時長，剩60秒時進Boss (即前30秒是小兵)
-        if(gameState.totalTime <= 60 && gameState.phase === 1) {
+        // 70秒總時長，剩50秒時進Boss (即前20秒是小兵)
+        if(gameState.totalTime <= 50 && gameState.phase === 1) {
             enterBossPhase();
         }
     } else {
@@ -303,19 +301,19 @@ function update(dt) {
         p.y += (input.y - p.y) * 0.2;
     }
 
-    // === 玩家射擊邏輯 (含五連發) ===
+    // === 玩家射擊 (五連發邏輯) ===
     shootTimer -= dt;
     if(shootTimer <= 0 && p.stunTimer <= 0) {
         if(gameState.powerLevel === 1) {
-            // 單發
+            // 單發 (小兵戰預設 / Boss戰初始)
             gameState.bullets.push({x: p.x, y: p.y-30, vx:0, vy:-800});
         } else if (gameState.powerLevel === 2) {
-            // 三發
+            // 三發 (小兵戰吃到道具)
             gameState.bullets.push({x: p.x, y: p.y-30, vx:0, vy:-800});
             gameState.bullets.push({x: p.x-15, y: p.y-20, vx:-200, vy:-750});
             gameState.bullets.push({x: p.x+15, y: p.y-20, vx:200, vy:-750});
         } else if (gameState.powerLevel >= 3) {
-            // 五連發 (Boss戰火力全開)
+            // 五連發 (Boss戰吃到道具才會有)
             gameState.bullets.push({x: p.x, y: p.y-30, vx:0, vy:-800}); // 中
             gameState.bullets.push({x: p.x-10, y: p.y-20, vx:-150, vy:-780}); // 左1
             gameState.bullets.push({x: p.x+10, y: p.y-20, vx:150, vy:-780});  // 右1
@@ -325,7 +323,7 @@ function update(dt) {
         shootTimer = 0.15;
     }
 
-    if(gameState.phase === 1 && Math.random() < 0.06) { // 小兵生成稍微加密
+    if(gameState.phase === 1 && Math.random() < 0.06) { 
         const isTurtle = Math.random() > 0.8;
         gameState.enemies.push({
             x: Math.random() * (canvas.width - 50) + 25,
@@ -564,11 +562,13 @@ function checkCollisions() {
         tryStunPlayer('boss');
     }
 
+    // === 吃到道具邏輯修正 ===
     gameState.items = gameState.items.filter(i => {
         if(dist(i, gameState.player) < 40) {
             if(i.type === 'shield') gameState.shieldTime = 5;
             if(i.type === 'power') {
-                // === 關鍵修正：Boss 階段升級為 3級 (五連發) ===
+                // 如果在 Boss 階段吃到，直接升級到 3級 (五連發)
+                // 如果在小兵階段吃到，升級到 2級 (三連發)
                 if(gameState.phase === 2) gameState.powerLevel = 3;
                 else gameState.powerLevel = 2;
             }
@@ -583,15 +583,12 @@ function tryStunPlayer(source) {
     if(gameState.shieldTime > 0) return; 
 
     let chance = 0;
-    let duration = 0;
+    let duration = 0.8; // 預設暈 0.8s (Boss 強暈)
 
-    // === 暈眩機率與時間修正 ===
     if (source === 'boss_mega') {
         chance = 0.4; 
-        duration = 0.5;
     } else if (source === 'boss') {
-        chance = 0.3; // Boss 普攻 30% 機率
-        duration = 0.8; // 0.8秒 暈眩
+        chance = 0.3; // Boss 普攻 30%
     } else {
         chance = 0.1; // 小兵
         duration = 0.2; 
