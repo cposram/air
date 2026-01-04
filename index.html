@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+，<!DOCTYPE html>
 <html lang="zh-TW">
 <head>
     <meta charset="UTF-8">
@@ -233,7 +233,7 @@ function fireNuke() {
 
     ui.nukeGif.src = `nuke_explosion.gif?t=${Date.now()}`;
     ui.vfx.style.display = 'block';
-    setTimeout(() => ui.vfx.style.display = 'none', 2500);
+    setTimeout(() => ui.vfx.style.display = 'none', 2000);
 
     // 核彈清場
     gameState.enemies.forEach(e => createExplosion(e.x, e.y, '#f00'));
