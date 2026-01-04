@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Super Pilot: Hardcore Balance</title>
+    <title>Super Pilot: Glorious Victory</title>
     <style>
         body { margin: 0; background: #000; overflow: hidden; display: flex; justify-content: center; align-items: center; height: 100vh; font-family: 'Arial Black', sans-serif; touch-action: none; }
         #game-container { position: relative; width: 100%; height: 100%; max-width: 480px; background: #111; overflow: hidden; }
@@ -43,20 +43,61 @@
         }
         @keyframes pulseText { from { transform: scale(1); } to { transform: scale(1.1); } }
 
+        /* === 結算畫面優化 === */
         #end-screen { 
             position: absolute; top: 0; left: 0; width: 100%; height: 100%; 
             background: rgba(0,0,0,0.9); display: none; flex-direction: column; 
             justify-content: center; align-items: center; z-index: 100; pointer-events: auto;
+            transition: background 0.5s;
         }
-        #end-title { font-size: 50px; margin-bottom: 20px; animation: glow 1s infinite alternate; }
-        #end-desc { color:white; font-size:20px; margin-bottom: 40px; }
         
-        .btn-restart {
-            background: #444; color: #fff; border: 2px solid #fff; 
-            padding: 15px 30px; font-size: 18px; cursor: pointer; border-radius: 50px;
-            font-family: sans-serif; font-weight: bold; transition: all 0.2s;
+        /* 勝利時的背景特效 */
+        #end-screen.victory-bg {
+            background: radial-gradient(circle, rgba(100,80,0,0.8) 0%, rgba(0,0,0,0.95) 80%);
         }
-        .btn-restart:active { background: #fff; color: #000; transform: scale(0.95); }
+        /* 失敗時的背景特效 */
+        #end-screen.defeat-bg {
+            background: radial-gradient(circle, rgba(50,0,0,0.8) 0%, rgba(0,0,0,0.95) 80%);
+        }
+
+        #end-icon { font-size: 80px; margin-bottom: 20px; animation: bounce 2s infinite; }
+        @keyframes bounce { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-20px); } }
+
+        #end-title { 
+            font-size: 50px; margin-bottom: 10px; font-weight: 900; text-align: center;
+            text-transform: uppercase; letter-spacing: 2px;
+        }
+        
+        /* 黃金字體特效 */
+        .gold-text {
+            background: linear-gradient(to bottom, #FFF700, #FFD700, #B8860B);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            filter: drop-shadow(0 0 10px rgba(255, 215, 0, 0.8));
+            animation: shine 2s infinite linear;
+        }
+        @keyframes shine { 0% { filter: drop-shadow(0 0 5px #FFD700); } 50% { filter: drop-shadow(0 0 20px #FFF); } 100% { filter: drop-shadow(0 0 5px #FFD700); } }
+
+        .red-text {
+            color: #ff3333; text-shadow: 0 0 15px #f00;
+        }
+
+        #end-desc { 
+            color: #ccc; font-size: 18px; margin-bottom: 0; 
+            text-transform: uppercase; letter-spacing: 1px;
+        }
+
+        /* 按鈕移到底部 */
+        #btn-container {
+            position: absolute; bottom: 80px; width: 100%; text-align: center;
+        }
+        .btn-restart {
+            background: transparent; color: #fff; border: 1px solid #666; 
+            padding: 12px 40px; font-size: 14px; cursor: pointer; border-radius: 30px;
+            font-family: sans-serif; transition: all 0.2s; opacity: 0.8;
+        }
+        .btn-restart:hover { border-color: #fff; opacity: 1; background: rgba(255,255,255,0.1); }
+        .btn-restart:active { transform: scale(0.95); }
         
         #debug { position: absolute; bottom: 10px; left: 10px; color: #ff5555; font-size: 12px; font-family: monospace; background: rgba(0,0,0,0.5); padding: 5px; display: none; }
     </style>
@@ -80,9 +121,14 @@
         </div>
 
         <div id="end-screen">
-            <div id="end-title">TITLE</div>
-            <div id="end-desc">Description</div>
-            <button class="btn-restart" onclick="restartGame()">再挑戰一次</button>
+            <div style="margin-top: -50px; text-align: center;">
+                <div id="end-icon">🏆</div>
+                <div id="end-title">CHAMPION</div>
+                <div id="end-desc">Mission Complete</div>
+            </div>
+            <div id="btn-container">
+                <button class="btn-restart" onclick="restartGame()">再挑戰一次</button>
+            </div>
         </div>
     </div>
 
@@ -101,6 +147,7 @@ const ui = {
     nukeGif: document.getElementById('nuke-gif'),
     flash: document.getElementById('flash-layer'),
     endScreen: document.getElementById('end-screen'),
+    endIcon: document.getElementById('end-icon'),
     endTitle: document.getElementById('end-title'),
     endDesc: document.getElementById('end-desc'),
     debug: document.getElementById('debug')
@@ -257,11 +304,10 @@ function fireNuke() {
         gameState.nukeActive = false; 
 
         if(gameState.boss) {
-            // === 核彈傷害調整：80 ~ 180 ===
             let timeLeftInBoss = Math.min(50, gameState.totalTime);
             let timeFactor = (50 - timeLeftInBoss) / 50; 
             
-            // 基礎 80 + 加成 100 = 最大 180
+            // 核彈傷害: 80 ~ 180
             let damage = 80 + (timeFactor * 100); 
             damage = Math.floor(damage);
             
@@ -311,7 +357,6 @@ function update(dt) {
             gameState.bullets.push({x: p.x-15, y: p.y-20, vx:-200, vy:-750});
             gameState.bullets.push({x: p.x+15, y: p.y-20, vx:200, vy:-750});
         } else if (gameState.powerLevel >= 3) {
-            // Boss戰 五連發
             gameState.bullets.push({x: p.x, y: p.y-30, vx:0, vy:-800});
             gameState.bullets.push({x: p.x-10, y: p.y-20, vx:-150, vy:-780});
             gameState.bullets.push({x: p.x+10, y: p.y-20, vx:150, vy:-780});
@@ -476,16 +521,23 @@ function showEndScreen(isWin) {
     gameState.boss = null;
     
     ui.endScreen.style.display = 'flex';
+    
+    // 清除舊的 class
+    ui.endScreen.classList.remove('victory-bg', 'defeat-bg');
+    ui.endTitle.classList.remove('gold-text', 'red-text');
+
     if(isWin) {
-        ui.endTitle.innerText = "🏆 CHAMPION";
-        ui.endTitle.style.color = "gold";
-        ui.endTitle.style.textShadow = "0 0 20px orange";
-        ui.endDesc.innerText = "MISSION COMPLETE";
+        ui.endScreen.classList.add('victory-bg');
+        ui.endIcon.innerHTML = "🏆";
+        ui.endTitle.innerHTML = "CHAMPION";
+        ui.endTitle.classList.add('gold-text');
+        ui.endDesc.innerHTML = "LEGENDARY PILOT";
     } else {
-        ui.endTitle.innerText = "☠️ TIME OVER";
-        ui.endTitle.style.color = "red";
-        ui.endTitle.style.textShadow = "0 0 20px darkred";
-        ui.endDesc.innerText = "MISSION FAILED";
+        ui.endScreen.classList.add('defeat-bg');
+        ui.endIcon.innerHTML = "☠️";
+        ui.endTitle.innerHTML = "MISSION FAILED";
+        ui.endTitle.classList.add('red-text');
+        ui.endDesc.innerHTML = "TIME LIMIT EXCEEDED";
     }
 }
 
@@ -583,7 +635,7 @@ function tryStunPlayer(source) {
     if (source === 'boss_mega') {
         chance = 0.4; 
     } else if (source === 'boss') {
-        chance = 0.3; // 30% 機率
+        chance = 0.3; 
     } else {
         chance = 0.1; 
         duration = 0.2; 
