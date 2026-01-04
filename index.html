@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Super Pilot: Absolute Boss</title>
+    <title>Super Pilot: Supply Drop</title>
     <style>
         body { margin: 0; background: #000; overflow: hidden; display: flex; justify-content: center; align-items: center; height: 100vh; font-family: 'Arial Black', sans-serif; touch-action: none; }
         #game-container { position: relative; width: 100%; height: 100%; max-width: 480px; background: #111; overflow: hidden; }
@@ -113,7 +113,7 @@ function resize() {
 window.addEventListener('resize', resize);
 resize();
 
-// === 2. 資源載入 ===
+// === 2. 安全資源載入 ===
 const assets = {};
 const imageSources = {
     player: 'player.png',
@@ -257,7 +257,6 @@ function fireNuke() {
         damage = Math.floor(damage);
 
         gameState.boss.hp -= damage;
-        // Boss 受到核彈時輕微後退，但不要退太遠
         gameState.boss.y = Math.max(50, gameState.boss.y - 30);
         
         showMsg(`NUKE HIT: -${damage}`, "#ff0");
@@ -301,7 +300,6 @@ function update(dt) {
         shootTimer = 0.15;
     }
 
-    // 小兵生成
     if(gameState.phase === 1 && Math.random() < 0.05) {
         const isTurtle = Math.random() > 0.8;
         gameState.enemies.push({
@@ -318,7 +316,7 @@ function update(dt) {
     gameState.enemies.forEach(e => {
         e.shootT -= dt;
         if(e.shootT <= 0) {
-            let angle = Math.atan2(p.y - e.y, p.x - e.x); // 瞄準玩家
+            let angle = Math.atan2(p.y - e.y, p.x - e.x); 
             gameState.enemyBullets.push({
                 x: e.x, y: e.y+20, 
                 vx: Math.cos(angle)*300, vy: Math.sin(angle)*300,
@@ -328,36 +326,31 @@ function update(dt) {
         }
     });
 
-    // === BOSS AI 升級版 ===
+    // === BOSS AI ===
     if(gameState.boss) {
         const b = gameState.boss;
         
-        // 1. 走位邏輯：平滑移動到隨機目標點
+        // 移動
         if(b.moveTimer <= 0) {
-            // 隨機決定下一個位置 (X: 50~寬度-50, Y: 130~300) -> 避開 UI
             b.targetX = 50 + Math.random() * (canvas.width - 100);
             b.targetY = 130 + Math.random() * 170; 
-            b.moveTimer = 2.0; // 每2秒換一次位置
+            b.moveTimer = 2.0; 
         }
         b.moveTimer -= dt;
-        
-        // 使用 Lerp 平滑移動
         b.x += (b.targetX - b.x) * 2 * dt;
         b.y += (b.targetY - b.y) * 2 * dt;
 
-        // 2. 普攻：三發瞄準彈
+        // 普攻
         b.shootTimer -= dt;
         if(b.shootTimer <= 0) {
             let angle = Math.atan2(p.y - b.y, p.x - b.x);
-            // 中間直射
             gameState.enemyBullets.push({x: b.x, y: b.y+60, vx: Math.cos(angle)*400, vy: Math.sin(angle)*400, source:'boss'});
-            // 左右擴散
             gameState.enemyBullets.push({x: b.x, y: b.y+60, vx: Math.cos(angle-0.2)*400, vy: Math.sin(angle-0.2)*400, source:'boss'});
             gameState.enemyBullets.push({x: b.x, y: b.y+60, vx: Math.cos(angle+0.2)*400, vy: Math.sin(angle+0.2)*400, source:'boss'});
             b.shootTimer = 0.8;
         }
 
-        // 3. 大招 (Super)：每 5 秒，針對玩家位置扇形掃射
+        // 大招
         b.superTimer -= dt;
         if(b.superTimer <= 0) {
             fireBossSuper(b.x, b.y, p.x, p.y);
@@ -365,12 +358,20 @@ function update(dt) {
             showMsg("TARGET LOCKED!", "#f00");
         }
 
-        // 4. 大大招 (Mega)：每 10 秒，全屏螺旋彈 + 狙擊
+        // 大大招
         b.megaTimer -= dt;
         if(b.megaTimer <= 0) {
             fireBossMega(b.x, b.y, p.x, p.y);
             b.megaTimer = 10.0;
             showMsg("HELLFIRE!!", "#f0f");
+        }
+        
+        // === 新增：Boss 掉寶邏輯 ===
+        // 每 5~8 秒掉落補給
+        b.dropTimer -= dt;
+        if(b.dropTimer <= 0) {
+            spawnItem(Math.random() * (canvas.width - 40) + 20, -20);
+            b.dropTimer = 5 + Math.random() * 3; // 重置計時
         }
 
         ui.bossFill.style.width = (b.hp / b.maxHp * 100) + "%";
@@ -382,13 +383,11 @@ function update(dt) {
 }
 
 function fireBossSuper(bx, by, px, py) {
-    // 針對玩家方向的扇形攻擊
     let baseAngle = Math.atan2(py - by, px - bx);
     const count = 15;
-    const spread = 1.5; // 扇形寬度弧度
+    const spread = 1.5; 
     
     for(let i=0; i<count; i++) {
-        // 從 baseAngle - spread/2 到 baseAngle + spread/2
         const angle = baseAngle - (spread/2) + (spread/count)*i;
         const speed = 400;
         gameState.enemyBullets.push({
@@ -402,11 +401,9 @@ function fireBossSuper(bx, by, px, py) {
 }
 
 function fireBossMega(bx, by, px, py) {
-    // 360度擴散 + 針對玩家的高速狙擊
     const count = 36; 
     for(let i=0; i<count; i++) {
         const angle = (Math.PI * 2 / count) * i;
-        // 慢速擴散圈
         gameState.enemyBullets.push({
             x: bx, y: by + 50,
             vx: Math.cos(angle) * 250,
@@ -415,10 +412,9 @@ function fireBossMega(bx, by, px, py) {
         });
     }
     
-    // 追加 5 發高速狙擊
     let aimAngle = Math.atan2(py - by, px - bx);
     for(let j=0; j<5; j++) {
-        let speed = 500 + (j*50); // 速度遞增
+        let speed = 500 + (j*50); 
         gameState.enemyBullets.push({
             x: bx, y: by + 50,
             vx: Math.cos(aimAngle) * speed,
@@ -448,13 +444,14 @@ function enterBossPhase() {
     setTimeout(() => {
         gameState.boss = {
             x: canvas.width/2, y: -150,
-            targetX: canvas.width/2, targetY: 150, // 初始目標點
+            targetX: canvas.width/2, targetY: 150, 
             moveTimer: 0,
             w: 200, h: 150,
             hp: 3600, maxHp: 3600,
             dir: 1, shootTimer: 0,
             superTimer: 5.0,
-            megaTimer: 10.0
+            megaTimer: 10.0,
+            dropTimer: 3.0 // 初始 3秒後掉第一次寶
         };
         ui.bossBar.style.display = 'block';
     }, 2000);
