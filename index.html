@@ -288,11 +288,11 @@ function fireNuke() {
         gameState.nukeActive = false; 
 
         if(gameState.boss) {
-            // 核彈傷害: 80 ~ 280
+            // 核彈傷害: 80 ~ 480
             let timeLeftInBoss = Math.min(50, gameState.totalTime);
             let timeFactor = (50 - timeLeftInBoss) / 50; 
             
-            let damage = 80 + (timeFactor * 200); 
+            let damage = 80 + (timeFactor * 400); 
             damage = Math.floor(damage);
             
             gameState.boss.hp -= damage;
