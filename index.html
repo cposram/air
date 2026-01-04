@@ -288,11 +288,11 @@ function fireNuke() {
         gameState.nukeActive = false; 
 
         if(gameState.boss) {
-            // 核彈傷害: 80 ~ 480
+            // 核彈傷害: 80 ~ 580
             let timeLeftInBoss = Math.min(50, gameState.totalTime);
             let timeFactor = (50 - timeLeftInBoss) / 50; 
             
-            let damage = 80 + (timeFactor * 400); 
+            let damage = 80 + (timeFactor * 500); 
             damage = Math.floor(damage);
             
             gameState.boss.hp -= damage;
@@ -481,7 +481,7 @@ function enterBossPhase() {
     }
     
     setTimeout(() => {
-        showMsg("WARNING!!", "#f00");
+        showMsg("WARNING!!BOSS", "#f00");
     }, 500);
 
     setTimeout(() => {
@@ -490,7 +490,7 @@ function enterBossPhase() {
             targetX: canvas.width/2, targetY: 150, 
             moveTimer: 0,
             w: 200, h: 150,
-            hp: 6500, maxHp: 6500, // 6500 HP Challenge
+            hp: 6000, maxHp: 6000, // 6000 HP Challenge
             dir: 1, shootTimer: 0,
             superTimer: 5.0,
             megaTimer: 10.0,
