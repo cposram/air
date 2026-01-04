@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Super Pilot: Fair Fight</title>
+    <title>Super Pilot: Perfect Flow</title>
     <style>
         body { margin: 0; background: #000; overflow: hidden; display: flex; justify-content: center; align-items: center; height: 100vh; font-family: 'Arial Black', sans-serif; touch-action: none; }
         #game-container { position: relative; width: 100%; height: 100%; max-width: 480px; background: #111; overflow: hidden; }
@@ -168,6 +168,7 @@ let gameState = {
     totalTime: 100, 
     nukes: 3,
     lastNukeTime: 0,
+    nukeActive: false, // 核彈是否正在播放中
     shake: 0,
     gameOver: false,
     player: { x: canvas.width/2, y: canvas.height-100, w: 64, h: 64, stunTimer: 0 },
@@ -191,6 +192,7 @@ function startGame() {
     gameState.phase = 1;
     gameState.totalTime = 100;
     gameState.nukes = 3;
+    gameState.nukeActive = false;
     gameState.gameOver = false;
     gameState.player.stunTimer = 0;
     gameState.powerLevel = 1;
@@ -204,6 +206,7 @@ function startGame() {
     
     ui.endScreen.style.display = 'none';
     ui.bossBar.style.display = 'none';
+    ui.vfx.style.display = 'none';
     
     showMsg("MISSION START", "#0ff");
     
@@ -231,9 +234,11 @@ function fireNuke() {
     const now = Date.now();
     if(now - gameState.lastNukeTime < 500) return;
     if(gameState.nukes <= 0) return;
+    if(gameState.nukeActive) return; // 避免連按
     
     gameState.lastNukeTime = now;
     gameState.nukes--;
+    gameState.nukeActive = true; // 啟動時空凍結
     updateNukeUI();
 
     gameState.shake = 40;
@@ -242,31 +247,39 @@ function fireNuke() {
 
     ui.nukeGif.src = `nuke_explosion.gif?t=${Date.now()}`;
     ui.vfx.style.display = 'block';
-    setTimeout(() => ui.vfx.style.display = 'none', 2500);
 
-    gameState.enemies.forEach(e => createExplosion(e.x, e.y, '#f00'));
-    gameState.enemies = []; 
-    gameState.enemyBullets = []; 
-
-    if(gameState.boss) {
-        // 核彈傷害: 100 ~ 400
-        let timeFactor = (60 - gameState.totalTime) / 60; 
-        if(timeFactor < 0) timeFactor = 0;
-        if(timeFactor > 1) timeFactor = 1;
+    // 2.5秒後解除凍結並清場
+    setTimeout(() => {
+        ui.vfx.style.display = 'none';
         
-        let damage = 100 + (timeFactor * 300); 
-        damage = Math.floor(damage);
+        // 此時才真正移除敵人，確保畫面是乾淨的
+        gameState.enemies.forEach(e => createExplosion(e.x, e.y, '#f00'));
+        gameState.enemies = []; 
+        gameState.enemyBullets = []; 
+        gameState.nukeActive = false; // 解除凍結
 
-        gameState.boss.hp -= damage;
-        gameState.boss.y = Math.max(50, gameState.boss.y - 30);
-        
-        showMsg(`NUKE HIT: -${damage}`, "#ff0");
-    }
+        if(gameState.boss) {
+            let timeFactor = (60 - gameState.totalTime) / 60; 
+            if(timeFactor < 0) timeFactor = 0; if(timeFactor > 1) timeFactor = 1;
+            let damage = 100 + (timeFactor * 300); // 100-400
+            damage = Math.floor(damage);
+            gameState.boss.hp -= damage;
+            gameState.boss.y = Math.max(50, gameState.boss.y - 30);
+            showMsg(`NUKE HIT: -${damage}`, "#ff0");
+        }
+    }, 2500);
 }
 
 // === 4. 更新邏輯 ===
 function update(dt) {
     if(gameState.gameOver) return;
+
+    // === 關鍵修正：核彈播放期間，暫停所有遊戲邏輯 ===
+    if(gameState.nukeActive) {
+        // 雖然邏輯暫停，但震動效果要繼續 update 才有感
+        if(gameState.shake > 0) gameState.shake *= 0.9;
+        return; 
+    }
 
     if(gameState.totalTime > 0) {
         gameState.totalTime -= dt;
@@ -330,7 +343,6 @@ function update(dt) {
     if(gameState.boss) {
         const b = gameState.boss;
         
-        // 移動
         if(b.moveTimer <= 0) {
             b.targetX = 50 + Math.random() * (canvas.width - 100);
             b.targetY = 130 + Math.random() * 170; 
@@ -340,7 +352,6 @@ function update(dt) {
         b.x += (b.targetX - b.x) * 2 * dt;
         b.y += (b.targetY - b.y) * 2 * dt;
 
-        // 普攻
         b.shootTimer -= dt;
         if(b.shootTimer <= 0) {
             let angle = Math.atan2(p.y - b.y, p.x - b.x);
@@ -350,23 +361,22 @@ function update(dt) {
             b.shootTimer = 0.8;
         }
 
-        // 大招
+        // 大招：8秒一次 (頻率降低)
         b.superTimer -= dt;
         if(b.superTimer <= 0) {
             fireBossSuper(b.x, b.y, p.x, p.y);
-            b.superTimer = 5.0; 
+            b.superTimer = 8.0; 
             showMsg("TARGET LOCKED!", "#f00");
         }
 
-        // 大大招
+        // 大大招：15秒一次 (頻率降低)
         b.megaTimer -= dt;
         if(b.megaTimer <= 0) {
             fireBossMega(b.x, b.y, p.x, p.y);
-            b.megaTimer = 10.0;
+            b.megaTimer = 15.0;
             showMsg("HELLFIRE!!", "#f0f");
         }
         
-        // 掉寶
         b.dropTimer -= dt;
         if(b.dropTimer <= 0) {
             spawnItem(Math.random() * (canvas.width - 40) + 20, -20);
@@ -556,29 +566,29 @@ function checkCollisions() {
     });
 }
 
-// === 暈眩機率系統 (Fix) ===
+// === 暈眩機率修正：Boss 只有 20% 機率暈眩 ===
 function tryStunPlayer(source) {
     if(gameState.shieldTime > 0) return; 
 
     let chance = 0;
-    let duration = 0;
+    let duration = 0.3; // 預設暈 0.3s
 
-    // 設定機率與時間
     if (source === 'boss_mega') {
-        chance = 0.4; // 40% 機率
-        duration = 0.5; // 0.5秒
+        chance = 0.4; // 大招 40%
+        duration = 0.5;
     } else if (source === 'boss') {
-        chance = 0.2; // 20% 機率
-        duration = 0.3; // 0.3秒
+        chance = 0.2; // 普攻 20%
     } else {
         chance = 0.1; // 小兵 10%
-        duration = 0.2; 
     }
 
-    // 擲骰子
+    // 只有擲骰子成功才會暈
     if(Math.random() < chance) {
         gameState.player.stunTimer = duration;
-        gameState.shake = 15;
+        gameState.shake = 20;
+    } else {
+        // 沒暈也會震一下表示受傷
+        gameState.shake = 10;
     }
 }
 
