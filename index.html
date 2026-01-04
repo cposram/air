@@ -3,10 +3,10 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Super Pilot: 100s Challenge</title>
+    <title>Super Pilot: Final Polish</title>
     <style>
         body { margin: 0; background: #000; overflow: hidden; display: flex; justify-content: center; align-items: center; height: 100vh; font-family: 'Arial Black', sans-serif; touch-action: none; }
-        #game-container { position: relative; width: 100%; height: 100%; max-width: 480px; background: #000; overflow: hidden; }
+        #game-container { position: relative; width: 100%; height: 100%; max-width: 480px; background: #111; overflow: hidden; }
         canvas { display: block; width: 100%; height: 100%; }
         
         /* UI 層 */
@@ -17,7 +17,9 @@
         #nuke-container { position: absolute; top: 20px; right: 20px; display: flex; gap: 10px; pointer-events: auto; }
         .nuke-btn { 
             width: 50px; height: 50px; 
-            background: rgba(0,0,0,0.5) url('rocket_icon.png') center/cover no-repeat;
+            background-color: #444; 
+            background-image: url('rocket_icon.png');
+            background-position: center; background-size: cover; background-repeat: no-repeat;
             border-radius: 50%; border: 2px solid #fff; cursor: pointer; 
             box-shadow: 0 0 10px #f00; transition: transform 0.1s;
         }
@@ -27,23 +29,21 @@
         #boss-hp-bar { display: none; position: absolute; top: 80px; left: 10%; width: 80%; height: 20px; background: #222; border: 2px solid #fff; border-radius: 10px; overflow: hidden; }
         #boss-hp-inner { width: 100%; height: 100%; background: linear-gradient(90deg, #f00, #ff8800); transition: width 0.2s; }
 
-        /* 特效層 (GIF 修復版) */
+        /* 特效層 - 強制填滿螢幕 */
         #vfx-layer { 
             position: absolute; top: 0; left: 0; width: 100%; height: 100%; 
             display: none; pointer-events: none; z-index: 5;
-            background: rgba(0,0,0,0.2); /* 輕微黑底讓爆炸更明顯 */
+            background: transparent; 
         }
         #vfx-layer img { 
             width: 100%; height: 100%; 
-            object-fit: contain; /* 改為 contain 確保 GIF 不被裁切 */
-            mix-blend-mode: screen; /* 濾掉 GIF 的黑底 */
+            object-fit: fill; /* 改用 fill 強制拉伸，確保沒有黑邊 */
+            mix-blend-mode: screen; 
         }
         #flash-layer { position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: white; opacity: 0; pointer-events: none; z-index: 20; transition: opacity 0.1s; }
         
-        /* 訊息文字 */
+        /* 訊息與勝利畫面 */
         #msg-center { position: absolute; top: 40%; width: 100%; text-align: center; font-size: 40px; color: #ff0; font-weight: bold; text-shadow: 0 0 20px red; display: none; z-index: 30; }
-
-        /* 勝利畫面 */
         #victory-screen { 
             position: absolute; top: 0; left: 0; width: 100%; height: 100%; 
             background: rgba(0,0,0,0.85); display: none; flex-direction: column; 
@@ -57,27 +57,27 @@
             padding: 10px 20px; font-size: 14px; cursor: pointer; border-radius: 5px;
             margin-top: 50px; font-family: sans-serif;
         }
-        #debug { position: absolute; bottom: 10px; left: 10px; color: #555; font-size: 12px; }
+        
+        #debug { position: absolute; bottom: 10px; left: 10px; color: #ff5555; font-size: 12px; font-family: monospace; background: rgba(0,0,0,0.5); padding: 5px; }
     </style>
 </head>
 <body>
 
     <div id="game-container">
         <canvas id="gameCanvas"></canvas>
-        
         <div id="vfx-layer"><img id="nuke-gif" src="" alt=""></div>
         <div id="flash-layer"></div>
 
         <div id="ui">
             <div class="hud-text">
-                <span id="phase-txt" style="color:#0ff">PHASE 1</span><br>
+                <span id="phase-txt" style="color:#0ff">INITIALIZING...</span><br>
                 TIME: <span id="timer">100</span>s<br>
                 <span id="shield-txt" style="color:#0f0; display:none;">🛡️ SHIELD ACTIVE</span>
             </div>
             <div id="nuke-container"></div>
             <div id="boss-hp-bar"><div id="boss-hp-inner"></div></div>
             <div id="msg-center"></div>
-            <div id="debug">Initializing...</div>
+            <div id="debug">Loading...</div>
         </div>
 
         <div id="victory-screen">
@@ -88,7 +88,7 @@
     </div>
 
 <script>
-// === 1. 初始化與設定 ===
+// === 1. 初始化 ===
 const canvas = document.getElementById('gameCanvas');
 const ctx = canvas.getContext('2d');
 const ui = {
@@ -113,7 +113,7 @@ function resize() {
 window.addEventListener('resize', resize);
 resize();
 
-// === 2. 資源對應 ===
+// === 2. 安全資源載入系統 ===
 const assets = {};
 const imageSources = {
     player: 'player.png',
@@ -130,47 +130,51 @@ const imageSources = {
     nuke_explosion: 'nuke_explosion.gif'
 };
 
+function createPlaceholder(color, text) {
+    const c = document.createElement('canvas');
+    c.width = 64; c.height = 64;
+    const x = c.getContext('2d');
+    x.fillStyle = color; x.fillRect(0,0,64,64);
+    x.fillStyle = '#fff'; x.font = '10px Arial'; x.fillText(text || '?', 5, 35);
+    x.strokeStyle = '#fff'; x.strokeRect(0,0,64,64);
+    return c;
+}
+
 let loadedCount = 0;
 const totalImages = Object.keys(imageSources).length;
+let gameStarted = false;
 
 for(let key in imageSources) {
     const img = new Image();
     img.src = imageSources[key];
-    img.onload = () => {
-        assets[key] = img;
-        loadedCount++;
-        if(loadedCount === totalImages) {
-            ui.debug.innerText = "System Ready";
-            startGame();
-        }
+    img.onload = () => { assets[key] = img; checkStart(); };
+    img.onerror = () => {
+        ui.debug.innerHTML += "<br>Missing: " + imageSources[key];
+        assets[key] = createPlaceholder('#555', key);
+        checkStart();
     };
-    img.onerror = () => { console.warn("Missing: " + imageSources[key]); };
 }
 
-// === 3. 輸入控制 ===
-const input = { x: canvas.width/2, y: canvas.height-100, pressing: false };
-
-function handleInput(x, y, pressing) {
-    input.x = x;
-    input.y = y;
-    input.pressing = pressing;
+function checkStart() {
+    loadedCount++;
+    if(loadedCount >= totalImages && !gameStarted) {
+        ui.debug.innerText = "System Ready";
+        startGame();
+    }
 }
 
-['touchstart', 'touchmove'].forEach(evt => 
-    canvas.addEventListener(evt, e => {
-        e.preventDefault(); 
-        handleInput(e.touches[0].clientX, e.touches[0].clientY, true);
-    }, { passive: false })
-);
-canvas.addEventListener('touchend', e => { e.preventDefault(); input.pressing = false; });
-canvas.addEventListener('mousedown', e => handleInput(e.clientX, e.clientY, true));
-canvas.addEventListener('mousemove', e => { if(input.pressing) handleInput(e.clientX, e.clientY, true); });
-canvas.addEventListener('mouseup', () => input.pressing = false);
+// 保險：3秒強制啟動
+setTimeout(() => {
+    if(!gameStarted) {
+        for(let key in imageSources) if(!assets[key]) assets[key] = createPlaceholder('#333', key);
+        startGame();
+    }
+}, 3000);
 
-// === 4. 遊戲變數 ===
+// === 3. 遊戲核心變數 ===
 let gameState = {
     phase: 1, 
-    totalTime: 100, // 總時間改為 100秒
+    totalTime: 100, 
     nukes: 3,
     shake: 0,
     gameOver: false,
@@ -189,8 +193,12 @@ let gameState = {
 let shootTimer = 0;
 
 function startGame() {
+    if(gameStarted) return;
+    gameStarted = true;
+
+    // 重置參數
     gameState.phase = 1;
-    gameState.totalTime = 100; // 重置時間
+    gameState.totalTime = 100;
     gameState.nukes = 3;
     gameState.gameOver = false;
     gameState.player.stunTimer = 0;
@@ -212,11 +220,13 @@ function startGame() {
     requestAnimationFrame(loop);
 }
 
+// === 4. 遊戲功能 ===
 function updateNukeUI() {
     ui.nukeBox.innerHTML = '';
     for(let i=0; i<gameState.nukes; i++) {
         const btn = document.createElement('div');
         btn.className = 'nuke-btn';
+        // 修正：核彈按鈕要能隨時點擊（只要還有庫存）
         const action = (e) => { e.stopPropagation(); fireNuke(); };
         btn.addEventListener('touchstart', action);
         btn.addEventListener('mousedown', action);
@@ -225,27 +235,27 @@ function updateNukeUI() {
 }
 
 function fireNuke() {
-    if(gameState.nukes <= 0 || gameState.player.stunTimer > 0) return;
+    // 修正：移除 stunTimer > 0 的限制，被暈眩時可以發射核彈保命！
+    if(gameState.nukes <= 0) return;
+    
     gameState.nukes--;
     updateNukeUI();
 
-    // 震動 + 閃光
     gameState.shake = 40;
     ui.flash.style.opacity = 1;
     setTimeout(() => ui.flash.style.opacity = 0, 150);
 
-    // GIF 播放邏輯修正：確保完整顯示
+    // 播放 GIF (強制重刷)
     ui.nukeGif.src = `nuke_explosion.gif?t=${Date.now()}`;
     ui.vfx.style.display = 'block';
-    // 延長到 2500ms，讓 GIF 跑完
     setTimeout(() => ui.vfx.style.display = 'none', 2500);
 
-    // 全屏傷害
+    // 清場
     gameState.enemies.forEach(e => createExplosion(e.x, e.y, '#f00'));
     gameState.enemies = []; 
     gameState.enemyBullets = [];
     if(gameState.boss) {
-        gameState.boss.hp -= 400; // 核彈傷害增加
+        gameState.boss.hp -= 400;
         gameState.boss.y -= 50;
     }
 }
@@ -254,34 +264,33 @@ function fireNuke() {
 function update(dt) {
     if(gameState.gameOver) return;
 
-    // 時間倒數系統
+    // 時間
     if(gameState.totalTime > 0) {
         gameState.totalTime -= dt;
         ui.timer.innerText = Math.ceil(gameState.totalTime);
 
-        // 階段切換邏輯：當時間剩餘 60秒 時，強制進入 Boss 戰
+        // 剩 60秒 進 Boss
         if(gameState.totalTime <= 60 && gameState.phase === 1) {
             enterBossPhase();
         }
     } else {
-        // 時間到 0 且 Boss 還沒死
         if(gameState.boss) {
             showMsg("TIME OVER", "#f00");
             gameState.gameOver = true;
-            setTimeout(() => { ui.phase.innerText = "GAME OVER"; }, 1000);
+            ui.phase.innerText = "GAME OVER";
         }
     }
 
-    // 玩家行為
+    // 玩家移動與暈眩
     const p = gameState.player;
     if(p.stunTimer > 0) {
-        p.stunTimer -= dt;
+        p.stunTimer -= dt; // 倒數暈眩時間
     } else if(input.pressing) {
         p.x += (input.x - p.x) * 0.2;
         p.y += (input.y - p.y) * 0.2;
     }
 
-    // 玩家射擊
+    // 玩家射擊 (暈眩時不能射擊)
     shootTimer -= dt;
     if(shootTimer <= 0 && p.stunTimer <= 0) {
         if(gameState.powerLevel === 1) {
@@ -294,8 +303,8 @@ function update(dt) {
         shootTimer = 0.15;
     }
 
-    // 小兵生成 (只在階段1: 100s ~ 60s)
-    if(gameState.phase === 1 && Math.random() < 0.05) { // 提高生成率
+    // 小兵生成
+    if(gameState.phase === 1 && Math.random() < 0.05) {
         const isTurtle = Math.random() > 0.8;
         gameState.enemies.push({
             x: Math.random() * (canvas.width - 50) + 25,
@@ -304,31 +313,23 @@ function update(dt) {
             w: isTurtle ? 64 : 48, h: isTurtle ? 64 : 48,
             hp: isTurtle ? 6 : 2,
             vy: isTurtle ? 80 : 250,
-            shootT: Math.random() * 1.5 // 初始隨機射擊時間
+            shootT: Math.random() * 1.5
         });
     }
 
-    // 敵人 AI 更新 (攻擊修復)
+    // 敵人 AI
     gameState.enemies.forEach(e => {
-        // 攻擊計時器
         e.shootT -= dt;
         if(e.shootT <= 0) {
-            // 發射子彈 (修復：確保子彈被加入陣列)
-            // 瞄準玩家
             let dx = p.x - e.x;
             let dy = p.y - e.y;
-            let len = Math.hypot(dx, dy);
-            let vx = (dx/len) * 300; // 子彈速度
-            let vy = (dy/len) * 300;
-            
-            gameState.enemyBullets.push({x: e.x, y: e.y+20, vx: vx, vy: Math.abs(vy) > 100 ? vy : 300});
-            
-            // 重置射擊冷卻 (小兵射得更快了)
+            let len = Math.hypot(dx, dy) || 1;
+            gameState.enemyBullets.push({x: e.x, y: e.y+20, vx: (dx/len)*300, vy: 300});
             e.shootT = e.type === 'turtle' ? 2.0 : 1.5; 
         }
     });
 
-    // Boss 邏輯
+    // Boss AI
     if(gameState.boss) {
         const b = gameState.boss;
         if(b.y < 100) b.y += 50 * dt;
@@ -337,14 +338,12 @@ function update(dt) {
 
         b.shootTimer -= dt;
         if(b.shootTimer <= 0) {
-            // Boss 彈幕
             gameState.enemyBullets.push({x: b.x, y: b.y+80, vx:0, vy:450});
             gameState.enemyBullets.push({x: b.x-40, y: b.y+60, vx:-150, vy:400});
             gameState.enemyBullets.push({x: b.x+40, y: b.y+60, vx:150, vy:400});
-            b.shootTimer = 0.8; // 射速加快
+            b.shootTimer = 0.8;
         }
         ui.bossFill.style.width = (b.hp / b.maxHp * 100) + "%";
-        
         if(b.hp <= 0) winGame();
     }
 
@@ -354,14 +353,10 @@ function update(dt) {
 
 function enterBossPhase() {
     gameState.phase = 2;
-    // 不重置時間，繼續倒數從 60 往下
-    
-    // 清空小兵
     gameState.enemies.forEach(e => createExplosion(e.x, e.y, '#f00'));
     gameState.enemies = [];
     gameState.enemyBullets = [];
 
-    // 補給核彈
     if(gameState.nukes < 3) {
         gameState.nukes++;
         updateNukeUI();
@@ -394,14 +389,10 @@ function updateEntities(dt) {
     gameState.enemyBullets.forEach(b => { b.x+=b.vx*dt; b.y+=b.vy*dt; });
     gameState.enemies.forEach(e => e.y+=e.vy*dt);
     gameState.items.forEach(i => i.y+=150*dt);
-    
-    for(let i=gameState.particles.length-1; i>=0; i--) {
-        let p = gameState.particles[i];
-        p.x += p.vx * dt;
-        p.y += p.vy * dt;
-        p.life -= dt;
-        if(p.life <= 0) gameState.particles.splice(i, 1);
-    }
+    gameState.particles.forEach((p, i) => {
+        p.x+=p.vx*dt; p.y+=p.vy*dt; p.life-=dt;
+        if(p.life<=0) gameState.particles.splice(i,1);
+    });
 
     gameState.bullets = gameState.bullets.filter(b => b.y > -50);
     gameState.enemyBullets = gameState.enemyBullets.filter(b => b.y < canvas.height+50);
@@ -409,52 +400,44 @@ function updateEntities(dt) {
 }
 
 function checkCollisions() {
-    // 玩家子彈打敵人
+    // 玩家子彈
     gameState.bullets = gameState.bullets.filter(b => {
         let hit = false;
-        // 打小兵
         for(let i=gameState.enemies.length-1; i>=0; i--) {
             let e = gameState.enemies[i];
             if(dist(b, e) < e.w/2 + 10) {
-                e.hp--;
-                hit = true;
+                e.hp--; hit = true;
                 if(e.hp <= 0) {
                     createExplosion(e.x, e.y, '#f00');
-                    if(Math.random() < 0.25) spawnItem(e.x, e.y); // 掉寶機率
+                    if(Math.random()<0.25) spawnItem(e.x, e.y);
                     gameState.enemies.splice(i, 1);
                 }
                 break;
             }
         }
-        // 打 Boss
         if(!hit && gameState.boss && dist(b, gameState.boss) < 80) {
-            gameState.boss.hp -= 10;
-            hit = true;
+            gameState.boss.hp -= 10; hit = true;
         }
         return !hit;
     });
 
-    // 暈眩檢測：敵人打玩家
-    // 1. 撞小兵
+    // 暈眩判定
     gameState.enemies.forEach(e => {
-        if(dist(gameState.player, e) < (e.w+gameState.player.w)/3) {
-            hitPlayer();
-        }
+        if(dist(gameState.player, e) < (e.w+gameState.player.w)/3) hitPlayer();
     });
-    // 2. 撞子彈
     gameState.enemyBullets.forEach((b, i) => {
         if(dist(b, gameState.player) < 30) {
             hitPlayer();
             gameState.enemyBullets.splice(i, 1);
         }
     });
-    
-    // 吃寶物
+
+    // 寶物
     gameState.items = gameState.items.filter(i => {
         if(dist(i, gameState.player) < 40) {
             if(i.type === 'shield') gameState.shieldTime = 5;
             if(i.type === 'power') gameState.powerLevel = 2;
-            showMsg(i.type === 'shield' ? "SHIELD" : "POWER UP", "#0f0");
+            showMsg(i.type === 'shield'?"SHIELD":"POWER UP", "#0f0");
             return false;
         }
         return true;
@@ -462,8 +445,9 @@ function checkCollisions() {
 }
 
 function hitPlayer() {
-    if(gameState.shieldTime > 0) return; 
-    gameState.player.stunTimer = 0.5; // 暈眩
+    if(gameState.shieldTime > 0) return;
+    // 修正：暈眩時間改為 0.2s，並且移除文字顯示
+    gameState.player.stunTimer = 0.2; 
     gameState.shake = 15;
 }
 
@@ -471,36 +455,45 @@ function createExplosion(x, y, color) {
     for(let i=0; i<8; i++) {
         gameState.particles.push({
             x: x, y: y,
-            vx: (Math.random()-0.5)*300,
-            vy: (Math.random()-0.5)*300,
-            life: 0.5,
-            color: color
+            vx: (Math.random()-0.5)*300, vy: (Math.random()-0.5)*300,
+            life: 0.5, color: color
         });
     }
 }
 
 function spawnItem(x, y) {
-    gameState.items.push({ x: x, y: y, type: Math.random()>0.5 ? 'shield':'power' });
+    gameState.items.push({ x:x, y:y, type: Math.random()>0.5?'shield':'power' });
 }
 
 function winGame() {
     gameState.boss = null;
     gameState.gameOver = true;
-    ui.victory.style.display = 'flex'; 
+    ui.victory.style.display = 'flex';
 }
 
 function restartGame() {
+    gameStarted = false; 
     startGame();
 }
 
 function showMsg(text, color) {
-    ui.msg.innerText = text;
-    ui.msg.style.color = color;
+    ui.msg.innerText = text; ui.msg.style.color = color;
     ui.msg.style.display = 'block';
     setTimeout(() => ui.msg.style.display = 'none', 1500);
 }
 
 function dist(a, b) { return Math.hypot(a.x-b.x, a.y-b.y); }
+
+// === 輸入 ===
+const input = { x: canvas.width/2, y: canvas.height-100, pressing: false };
+function handleInput(x, y, pressing) { input.x = x; input.y = y; input.pressing = pressing; }
+['touchstart', 'touchmove'].forEach(e => canvas.addEventListener(e, ev => {
+    ev.preventDefault(); handleInput(ev.touches[0].clientX, ev.touches[0].clientY, true);
+}, {passive: false}));
+canvas.addEventListener('touchend', ev => { ev.preventDefault(); input.pressing = false; });
+canvas.addEventListener('mousedown', ev => handleInput(ev.clientX, ev.clientY, true));
+canvas.addEventListener('mousemove', ev => { if(input.pressing) handleInput(ev.clientX, ev.clientY, true); });
+canvas.addEventListener('mouseup', () => input.pressing = false);
 
 // === 6. 繪圖 ===
 function draw() {
@@ -509,53 +502,59 @@ function draw() {
     
     if(gameState.shake > 0.5) ctx.translate((Math.random()-0.5)*gameState.shake, (Math.random()-0.5)*gameState.shake);
 
-    if(assets.bg && assets.bg.complete) ctx.drawImage(assets.bg, 0, 0, canvas.width, canvas.height);
-    
+    // 背景
+    if(assets.bg && assets.bg instanceof Image && assets.bg.width > 0) {
+        ctx.drawImage(assets.bg, 0, 0, canvas.width, canvas.height);
+    } else {
+        ctx.fillStyle = '#000'; ctx.fillRect(0,0,canvas.width,canvas.height);
+        ctx.fillStyle = '#fff';
+        for(let i=0; i<20; i++) ctx.fillRect(Math.random()*canvas.width, Math.random()*canvas.height, 2, 2);
+    }
+
+    // 寶物
     gameState.items.forEach(i => {
         let img = i.type === 'shield' ? assets.item_shield : assets.item_power;
         ctx.drawImage(img, i.x-20, i.y-20, 40, 40);
     });
 
+    // 敵人
     gameState.enemies.forEach(e => {
         let img = e.type === 'turtle' ? assets.enemy_turtle : assets.enemy_minion;
         ctx.drawImage(img, e.x-e.w/2, e.y-e.h/2, e.w, e.h);
     });
 
+    // Boss
     if(gameState.boss) {
         let b = gameState.boss;
         ctx.drawImage(assets.boss, b.x-b.w/2, b.y-b.h/2, b.w, b.h);
     }
 
+    // 玩家
     let p = gameState.player;
     ctx.drawImage(assets.player, p.x-p.w/2, p.y-p.h/2, p.w, p.h);
     
+    // 暈眩特效 (只變色，不顯示文字)
     if(p.stunTimer > 0) {
+        // 畫一個半透明黃色圓圈表示暈眩
+        ctx.globalAlpha = 0.5;
         ctx.fillStyle = "yellow";
-        ctx.font = "bold 20px Arial";
-        ctx.fillText("💫暈眩", p.x-30, p.y-40);
-    }
-
-    if(gameState.shieldTime > 0) {
-        ctx.globalAlpha = 0.6;
-        ctx.drawImage(assets.vfx_shield, p.x-48, p.y-48, 96, 96);
+        ctx.beginPath(); ctx.arc(p.x, p.y, 40, 0, Math.PI*2); ctx.fill();
         ctx.globalAlpha = 1.0;
     }
 
+    if(gameState.shieldTime > 0) {
+        ctx.globalAlpha = 0.6; ctx.drawImage(assets.vfx_shield, p.x-48, p.y-48, 96, 96); ctx.globalAlpha = 1.0;
+    }
+
+    // 子彈
     gameState.bullets.forEach(b => ctx.drawImage(assets.bullet_player, b.x-8, b.y-16, 16, 32));
-    
-    // 繪製敵方子彈 (修復：使用 enemy_bullet.png)
     gameState.enemyBullets.forEach(b => {
-        if(assets.enemy_bullet && assets.enemy_bullet.complete) {
-            ctx.drawImage(assets.enemy_bullet, b.x-10, b.y-10, 20, 20);
-        } else {
-            ctx.fillStyle = '#f0f'; ctx.beginPath(); ctx.arc(b.x, b.y, 6, 0, Math.PI*2); ctx.fill();
-        }
+        if(assets.enemy_bullet && assets.enemy_bullet.width > 0) ctx.drawImage(assets.enemy_bullet, b.x-10, b.y-10, 20, 20);
+        else { ctx.fillStyle = '#f0f'; ctx.beginPath(); ctx.arc(b.x, b.y, 6, 0, Math.PI*2); ctx.fill(); }
     });
 
-    gameState.particles.forEach(p => {
-        ctx.fillStyle = p.color;
-        ctx.fillRect(p.x, p.y, 5, 5);
-    });
+    // 粒子
+    gameState.particles.forEach(p => { ctx.fillStyle = p.color; ctx.fillRect(p.x, p.y, 5, 5); });
 
     ctx.restore();
 }
@@ -564,10 +563,9 @@ function loop(timestamp) {
     if(!gameState.lastTime) gameState.lastTime = timestamp;
     const dt = (timestamp - gameState.lastTime) / 1000;
     gameState.lastTime = timestamp;
-
     update(dt);
     draw();
-    if(!gameState.gameOver || gameState.boss) requestAnimationFrame(loop);
+    if(gameStarted) requestAnimationFrame(loop);
 }
 </script>
 </body>
