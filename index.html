@@ -1,9 +1,9 @@
-，<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="zh-TW">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Super Pilot: Boss Challenge</title>
+    <title>Super Pilot: Hardcore Mode</title>
     <style>
         body { margin: 0; background: #000; overflow: hidden; display: flex; justify-content: center; align-items: center; height: 100vh; font-family: 'Arial Black', sans-serif; touch-action: none; }
         #game-container { position: relative; width: 100%; height: 100%; max-width: 480px; background: #111; overflow: hidden; }
@@ -42,8 +42,16 @@
         }
         #flash-layer { position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: white; opacity: 0; pointer-events: none; z-index: 20; transition: opacity 0.1s; }
         
-        /* 訊息與勝利畫面 */
-        #msg-center { position: absolute; top: 40%; width: 100%; text-align: center; font-size: 40px; color: #ff0; font-weight: bold; text-shadow: 0 0 20px red; display: none; z-index: 30; }
+        /* 訊息文字 - 放大 Warning 效果 */
+        #msg-center { 
+            position: absolute; top: 40%; width: 100%; text-align: center; 
+            font-size: 50px; color: #ff0; font-weight: bold; 
+            text-shadow: 0 0 20px red; display: none; z-index: 30; 
+            animation: pulseText 0.5s infinite alternate;
+        }
+        @keyframes pulseText { from { transform: scale(1); } to { transform: scale(1.1); } }
+
+        /* 勝利畫面 */
         #victory-screen { 
             position: absolute; top: 0; left: 0; width: 100%; height: 100%; 
             background: rgba(0,0,0,0.85); display: none; flex-direction: column; 
@@ -233,14 +241,14 @@ function fireNuke() {
 
     ui.nukeGif.src = `nuke_explosion.gif?t=${Date.now()}`;
     ui.vfx.style.display = 'block';
-    setTimeout(() => ui.vfx.style.display = 'none', 2000);
+    setTimeout(() => ui.vfx.style.display = 'none', 2500);
 
-    // 核彈清場
+    // 核彈傷害 -20% (400 -> 320)
     gameState.enemies.forEach(e => createExplosion(e.x, e.y, '#f00'));
     gameState.enemies = []; 
-    gameState.enemyBullets = []; // 清除所有敵方子彈
+    gameState.enemyBullets = []; 
     if(gameState.boss) {
-        gameState.boss.hp -= 400;
+        gameState.boss.hp -= 320; // Nerfed damage
         gameState.boss.y -= 50;
     }
 }
@@ -310,21 +318,19 @@ function update(dt) {
             gameState.enemyBullets.push({
                 x: e.x, y: e.y+20, 
                 vx: (dx/len)*300, vy: 300,
-                source: 'minion' // 標記來源
+                source: 'minion'
             });
             e.shootT = e.type === 'turtle' ? 2.0 : 1.5; 
         }
     });
 
-    // Boss AI (困難版)
+    // Boss AI
     if(gameState.boss) {
         const b = gameState.boss;
-        // 移動邏輯
         if(b.y < 100) b.y += 50 * dt;
         b.x += 120 * dt * b.dir;
         if(b.x > canvas.width - 100 || b.x < 100) b.dir *= -1;
 
-        // 普攻 (3發散射)
         b.shootTimer -= dt;
         if(b.shootTimer <= 0) {
             gameState.enemyBullets.push({x: b.x, y: b.y+80, vx:0, vy:450, source:'boss'});
@@ -333,11 +339,11 @@ function update(dt) {
             b.shootTimer = 0.8;
         }
 
-        // 大招邏輯：每10秒一次 Super Attack
+        // 大招邏輯：每 7 秒一次 (更頻繁)
         b.superTimer -= dt;
         if(b.superTimer <= 0) {
             fireBossSuper(b.x, b.y);
-            b.superTimer = 10.0; // 重置冷卻
+            b.superTimer = 7.0; // 縮短冷卻
             showMsg("SUPER ATTACK!", "#f00");
         }
 
@@ -350,8 +356,7 @@ function update(dt) {
 }
 
 function fireBossSuper(bx, by) {
-    // 360度擴散彈
-    const count = 20; // 子彈數量
+    const count = 20; 
     for(let i=0; i<count; i++) {
         const angle = (Math.PI * 2 / count) * i;
         const speed = 350;
@@ -362,7 +367,7 @@ function fireBossSuper(bx, by) {
             source: 'boss'
         });
     }
-    gameState.shake = 20; // 大招震動
+    gameState.shake = 20;
 }
 
 function enterBossPhase() {
@@ -377,18 +382,21 @@ function enterBossPhase() {
         showMsg("NUKE RELOADED", "#0f0");
     }
     
-    // 延遲生成 Boss
+    // Boss 進場前的明顯警告
+    setTimeout(() => {
+        showMsg("WARNING!!", "#f00"); // 確保警告會出現
+    }, 500);
+
     setTimeout(() => {
         gameState.boss = {
             x: canvas.width/2, y: -150,
             w: 200, h: 150,
             hp: 3000, maxHp: 3000,
             dir: 1, shootTimer: 0,
-            superTimer: 5.0 // Boss 進場後 5秒放第一次大招
+            superTimer: 5.0
         };
         ui.bossBar.style.display = 'block';
-        showMsg("WARNING!!", "#f00");
-    }, 1000);
+    }, 2000);
 }
 
 function updateEntities(dt) {
@@ -416,7 +424,6 @@ function checkCollisions() {
     // 玩家子彈
     gameState.bullets = gameState.bullets.filter(b => {
         let hit = false;
-        // 打小兵
         for(let i=gameState.enemies.length-1; i>=0; i--) {
             let e = gameState.enemies[i];
             if(dist(b, e) < e.w/2 + 10) {
@@ -429,29 +436,35 @@ function checkCollisions() {
                 break;
             }
         }
-        // 打 Boss
         if(!hit && gameState.boss && dist(b, gameState.boss) < 80) {
             gameState.boss.hp -= 10; hit = true;
         }
         return !hit;
     });
 
-    // 1. 小兵撞玩家 (機率暈眩)
-    gameState.enemies.forEach(e => {
+    // 1. 小兵撞玩家 (護盾衝撞邏輯)
+    for(let i=gameState.enemies.length-1; i>=0; i--) {
+        let e = gameState.enemies[i];
         if(dist(gameState.player, e) < (e.w+gameState.player.w)/3) {
-            tryStunPlayer('minion');
+            if(gameState.shieldTime > 0) {
+                // 護盾衝撞：直接撞死小兵
+                createExplosion(e.x, e.y, '#0ff'); // 青色爆炸代表護盾撞擊
+                gameState.enemies.splice(i, 1);
+            } else {
+                tryStunPlayer('minion');
+            }
         }
-    });
+    }
 
-    // 2. 敵方子彈 (區分 Boss 和 Minion)
+    // 2. 敵方子彈
     gameState.enemyBullets.forEach((b, i) => {
         if(dist(b, gameState.player) < 25) {
-            tryStunPlayer(b.source); // 傳入子彈來源
+            tryStunPlayer(b.source);
             gameState.enemyBullets.splice(i, 1);
         }
     });
 
-    // 3. Boss 本體撞玩家 (必暈)
+    // 3. Boss 撞玩家
     if(gameState.boss && dist(gameState.boss, gameState.player) < 100) {
         tryStunPlayer('boss');
     }
@@ -472,13 +485,10 @@ function tryStunPlayer(source) {
     if(gameState.shieldTime > 0) return; // 無敵中不暈
 
     let duration = 0;
-    
     if (source === 'boss') {
-        // Boss 攻擊：必暈 0.5秒
-        duration = 0.5;
+        duration = 1.0; // Boss 必暈 1秒
     } else {
-        // 小兵攻擊：30% 機率暈 0.2秒
-        if(Math.random() < 0.3) duration = 0.2;
+        if(Math.random() < 0.3) duration = 0.2; // 小兵機率暈 0.2秒
     }
 
     if(duration > 0) {
@@ -542,8 +552,7 @@ function draw() {
         ctx.drawImage(assets.bg, 0, 0, canvas.width, canvas.height);
     } else {
         ctx.fillStyle = '#000'; ctx.fillRect(0,0,canvas.width,canvas.height);
-        ctx.fillStyle = '#fff';
-        for(let i=0; i<20; i++) ctx.fillRect(Math.random()*canvas.width, Math.random()*canvas.height, 2, 2);
+        ctx.fillStyle = '#fff'; for(let i=0; i<20; i++) ctx.fillRect(Math.random()*canvas.width, Math.random()*canvas.height, 2, 2);
     }
 
     gameState.items.forEach(i => {
@@ -565,7 +574,6 @@ function draw() {
     ctx.drawImage(assets.player, p.x-p.w/2, p.y-p.h/2, p.w, p.h);
     
     if(p.stunTimer > 0) {
-        // 暈眩時閃爍黃色
         ctx.globalAlpha = 0.5;
         ctx.fillStyle = "yellow";
         ctx.beginPath(); ctx.arc(p.x, p.y, 40, 0, Math.PI*2); ctx.fill();
@@ -578,7 +586,6 @@ function draw() {
 
     gameState.bullets.forEach(b => ctx.drawImage(assets.bullet_player, b.x-8, b.y-16, 16, 32));
     
-    // 繪製敵方子彈
     gameState.enemyBullets.forEach(b => {
         if(assets.enemy_bullet && assets.enemy_bullet.width > 0) ctx.drawImage(assets.enemy_bullet, b.x-10, b.y-10, 20, 20);
         else { ctx.fillStyle = '#f0f'; ctx.beginPath(); ctx.arc(b.x, b.y, 6, 0, Math.PI*2); ctx.fill(); }
