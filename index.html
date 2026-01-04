@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Super Pilot: Insane Mode</title>
+    <title>Super Pilot: Ultimate Strategy</title>
     <style>
         body { margin: 0; background: #000; overflow: hidden; display: flex; justify-content: center; align-items: center; height: 100vh; font-family: 'Arial Black', sans-serif; touch-action: none; }
         #game-container { position: relative; width: 100%; height: 100%; max-width: 480px; background: #111; overflow: hidden; }
@@ -12,7 +12,7 @@
         /* UI 層 */
         #ui { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; color: white; z-index: 10; }
         
-        /* 核彈按鈕容器 */
+        /* 核彈按鈕 */
         #nuke-container { position: absolute; top: 20px; right: 20px; display: flex; gap: 10px; pointer-events: auto; }
         .nuke-btn { 
             width: 50px; height: 50px; 
@@ -23,8 +23,6 @@
             box-shadow: 0 0 10px #f00; transition: transform 0.1s;
         }
         .nuke-btn:active { transform: scale(0.9); filter: brightness(1.5); }
-        /* 冷卻時變灰 */
-        .nuke-cd { opacity: 0.5; filter: grayscale(1); pointer-events: none; }
 
         #boss-hp-bar { display: none; position: absolute; top: 80px; left: 10%; width: 80%; height: 20px; background: #222; border: 2px solid #fff; border-radius: 10px; overflow: hidden; }
         #boss-hp-inner { width: 100%; height: 100%; background: linear-gradient(90deg, #f00, #ff8800); transition: width 0.2s; }
@@ -59,6 +57,14 @@
             margin-top: 50px; font-family: sans-serif;
         }
         
+        /* 傷害飄字特效 */
+        .damage-popup {
+            position: absolute; color: #ff0; font-weight: bold; font-size: 24px;
+            pointer-events: none; animation: floatUp 1s forwards;
+            text-shadow: 2px 2px 0 #000;
+        }
+        @keyframes floatUp { to { transform: translateY(-50px); opacity: 0; } }
+
         #debug { position: absolute; bottom: 10px; left: 10px; color: #ff5555; font-size: 12px; font-family: monospace; background: rgba(0,0,0,0.5); padding: 5px; display: none; }
     </style>
 </head>
@@ -166,7 +172,7 @@ let gameState = {
     phase: 1, 
     totalTime: 100, 
     nukes: 3,
-    lastNukeTime: 0, // 防手震冷卻時間
+    lastNukeTime: 0,
     shake: 0,
     gameOver: false,
     player: { x: canvas.width/2, y: canvas.height-100, w: 64, h: 64, stunTimer: 0 },
@@ -187,7 +193,6 @@ function startGame() {
     if(gameStarted) return;
     gameStarted = true;
 
-    // 重置
     gameState.phase = 1;
     gameState.totalTime = 100;
     gameState.nukes = 3;
@@ -216,10 +221,9 @@ function updateNukeUI() {
     for(let i=0; i<gameState.nukes; i++) {
         const btn = document.createElement('div');
         btn.className = 'nuke-btn';
-        // 使用 touchstart 確保反應快，但加入冷卻邏輯
         const action = (e) => { 
             e.stopPropagation(); 
-            e.preventDefault(); // 防止雙重觸發
+            e.preventDefault(); 
             fireNuke(); 
         };
         btn.addEventListener('touchstart', action, {passive: false});
@@ -230,7 +234,6 @@ function updateNukeUI() {
 
 function fireNuke() {
     const now = Date.now();
-    // 關鍵修正：防手震冷卻 (500ms 內不能連按)
     if(now - gameState.lastNukeTime < 500) return;
     if(gameState.nukes <= 0) return;
     
@@ -246,13 +249,25 @@ function fireNuke() {
     ui.vfx.style.display = 'block';
     setTimeout(() => ui.vfx.style.display = 'none', 2500);
 
-    // 核彈傷害 - (下修至 200)
     gameState.enemies.forEach(e => createExplosion(e.x, e.y, '#f00'));
     gameState.enemies = []; 
     gameState.enemyBullets = []; 
+
     if(gameState.boss) {
-        gameState.boss.hp -= 200; // Nerfed damage to 200
+        // === 改動：動態傷害計算 ===
+        // 時間剩下 60s -> 傷害 100
+        // 時間剩下 0s  -> 傷害 200
+        let timeFactor = (60 - gameState.totalTime) / 60; // 0.0 ~ 1.0 (如果時間負數會超過1，需限制)
+        if(timeFactor < 0) timeFactor = 0;
+        if(timeFactor > 1) timeFactor = 1;
+        
+        let damage = 100 + (timeFactor * 100); // 100 ~ 200
+        damage = Math.floor(damage);
+
+        gameState.boss.hp -= damage;
         gameState.boss.y -= 50;
+        
+        showMsg(`NUKE HIT: -${damage}`, "#ff0"); // 顯示傷害數值
     }
 }
 
@@ -260,7 +275,6 @@ function fireNuke() {
 function update(dt) {
     if(gameState.gameOver) return;
 
-    // 時間倒數
     if(gameState.totalTime > 0) {
         gameState.totalTime -= dt;
         ui.timer.innerText = Math.ceil(gameState.totalTime);
@@ -283,7 +297,6 @@ function update(dt) {
         p.y += (input.y - p.y) * 0.2;
     }
 
-    // 射擊
     shootTimer -= dt;
     if(shootTimer <= 0 && p.stunTimer <= 0) {
         if(gameState.powerLevel === 1) {
@@ -337,11 +350,10 @@ function update(dt) {
             b.shootTimer = 0.8;
         }
 
-        // 大招邏輯：每 5 秒一次 (極度頻繁)
         b.superTimer -= dt;
         if(b.superTimer <= 0) {
             fireBossSuper(b.x, b.y);
-            b.superTimer = 5.0; // 5秒冷卻
+            b.superTimer = 5.0; 
             showMsg("SUPER ATTACK!", "#f00");
         }
 
@@ -354,7 +366,8 @@ function update(dt) {
 }
 
 function fireBossSuper(bx, by) {
-    const count = 20; 
+    // === 改動：密度提升至 36 發 (每10度一發) ===
+    const count = 36; 
     for(let i=0; i<count; i++) {
         const angle = (Math.PI * 2 / count) * i;
         const speed = 350;
@@ -438,6 +451,7 @@ function checkCollisions() {
         return !hit;
     });
 
+    // 1. 小兵撞擊
     for(let i=gameState.enemies.length-1; i>=0; i--) {
         let e = gameState.enemies[i];
         if(dist(gameState.player, e) < (e.w+gameState.player.w)/3) {
@@ -450,12 +464,20 @@ function checkCollisions() {
         }
     }
 
-    gameState.enemyBullets.forEach((b, i) => {
+    // 2. 敵方子彈 (改動：護盾可彈開子彈)
+    for(let i=gameState.enemyBullets.length-1; i>=0; i--) {
+        let b = gameState.enemyBullets[i];
         if(dist(b, gameState.player) < 25) {
-            tryStunPlayer(b.source);
-            gameState.enemyBullets.splice(i, 1);
+            if(gameState.shieldTime > 0) {
+                // === 改動：護盾彈開/銷毀子彈 ===
+                createExplosion(b.x, b.y, '#0ff'); // 藍色火花代表格擋
+                gameState.enemyBullets.splice(i, 1);
+            } else {
+                tryStunPlayer(b.source);
+                gameState.enemyBullets.splice(i, 1);
+            }
         }
-    });
+    }
 
     if(gameState.boss && dist(gameState.boss, gameState.player) < 100) {
         tryStunPlayer('boss');
