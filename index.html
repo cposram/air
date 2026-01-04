@@ -292,7 +292,7 @@ function fireNuke() {
             let timeLeftInBoss = Math.min(50, gameState.totalTime);
             let timeFactor = (50 - timeLeftInBoss) / 50; 
             
-            let damage = 80 + (timeFactor * 400); 
+            let damage = 80 + (timeFactor * 600); 
             damage = Math.floor(damage);
             
             gameState.boss.hp -= damage;
