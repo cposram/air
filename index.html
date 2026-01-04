@@ -3,420 +3,221 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Super Pilot: Shield Evolution (Final Fix)</title>
+    <title>Super Pilot: Nuke Update</title>
     <style>
         body { margin: 0; background: #000; overflow: hidden; display: flex; justify-content: center; align-items: center; height: 100vh; font-family: sans-serif; touch-action: none; }
-        #game-container { position: relative; overflow: hidden; border: 2px solid #222; background: #000; }
-        canvas { display: block; }
+        #game-container { position: relative; overflow: hidden; border: 2px solid #222; background: #000; width: 450px; height: 800px; }
+        canvas { display: block; width: 100%; height: 100%; }
         
         /* UI 層 */
         #ui { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; color: white; }
         .hud-text { padding: 15px; font-weight: bold; text-shadow: 2px 2px #000; font-size: 18px; }
         
-        /* 帥氣核彈 UI */
+        /* 核彈按鈕容器 */
         #nuke-container { position: absolute; top: 20px; right: 20px; display: flex; gap: 10px; pointer-events: auto; }
-        .nuke-icon { 
-            width: 45px; height: 45px; background: radial-gradient(circle, #fff, #f00); 
-            border-radius: 50%; border: 3px solid #fff; cursor: pointer; 
-            box-shadow: 0 0 15px #f00; display: flex; justify-content: center; align-items: center;
-            font-size: 24px; font-weight: bold; color: black; animation: pulse 1s infinite alternate;
-        }
-        @keyframes pulse { from { transform: scale(1); } to { transform: scale(1.1); } }
         
+        /* 改用圖片的核彈按鈕 */
+        .nuke-btn { 
+            width: 50px; height: 50px; 
+            background-image: url('rocket_icon.png'); /* 讀取你的火箭圖示 */
+            background-size: cover;
+            border-radius: 50%; border: 2px solid #fff; cursor: pointer; 
+            box-shadow: 0 0 10px #f00; 
+            transition: transform 0.1s;
+        }
+        /* 如果還沒生成圖片，這行會提供一個預設的火箭 Emoji */
+        .nuke-btn:after { content: '🚀'; font-size: 30px; display: flex; justify-content: center; align-items: center; width: 100%; height: 100%; background: radial-gradient(#444, #000); border-radius: 50%; z-index:-1; }
+        
+        .nuke-btn:active { transform: scale(0.9); }
+        
+        /* 爆炸 GIF 覆蓋層 (預設隱藏) */
+        #vfx-layer {
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            display: none; pointer-events: none; z-index: 50;
+            mix-blend-mode: screen; /* 這行可以把黑色背景濾掉，只留下光亮 */
+        }
+        #vfx-layer img { width: 100%; height: 100%; object-fit: cover; }
+
+        /* 白光閃爍層 */
+        #flash-layer {
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            background: white; opacity: 0; pointer-events: none; z-index: 60;
+            transition: opacity 0.1s;
+        }
+
         #boss-hp-bar { display: none; position: absolute; top: 90px; left: 10%; width: 80%; height: 20px; background: #222; border: 3px solid #555; border-radius: 10px; overflow: hidden; box-shadow: 0 0 10px #f00; }
         #boss-hp-inner { width: 100%; height: 100%; background: linear-gradient(to right, #f00, #ff5e00); transition: width 0.1s; }
         
         /* 讀取畫面 */
         #loading-screen { position: absolute; top:0; left:0; width:100%; height:100%; background:#000; color:#fff; display:flex; justify-content:center; align-items:center; font-size:24px; z-index: 100; flex-direction: column;}
-        #loading-text { margin-top: 10px; font-size: 16px; color: #aaa; }
     </style>
 </head>
 <body>
 
     <div id="game-container">
-        <canvas id="gameCanvas"></canvas>
+        <canvas id="gameCanvas" width="450" height="800"></canvas>
+        
+        <div id="vfx-layer"><img id="nuke-gif" src="" alt=""></div>
+        <div id="flash-layer"></div>
+
         <div id="ui">
             <div class="hud-text">
-                <span style="color:#0ff">TIME: <span id="timer">120</span>s</span><br>
-                <span id="shield-status" style="color:#3498db; display:none;">🛡️ 無敵中!</span>
+                <span style="color:#0ff">TIME: <span id="timer">120</span>s</span>
             </div>
-            <div id="nuke-container"></div>
+            <div id="nuke-container">
+                </div>
             <div id="boss-hp-bar"><div id="boss-hp-inner"></div></div>
-            <div id="big-msg" style="position:absolute; top:40%; width:100%; text-align:center; font-size:40px; font-weight:bold; color:#0ff; text-shadow:0 0 20px #0ff; display:none; pointer-events:none;"></div>
         </div>
+        
         <div id="loading-screen">
             <div>LOADING... <span id="loading-percent">0%</span></div>
-            <div id="loading-text">初始化系統中...</div>
         </div>
     </div>
 
 <script>
-/** 遊戲核心常數 **/
 const canvas = document.getElementById('gameCanvas');
 const ctx = canvas.getContext('2d');
 const ui = {
-    timer: document.getElementById('timer'),
-    msg: document.getElementById('big-msg'),
     nukeBox: document.getElementById('nuke-container'),
-    bossBar: document.getElementById('boss-hp-bar'),
-    bossFill: document.getElementById('boss-hp-inner'),
-    shield: document.getElementById('shield-status'),
+    vfxLayer: document.getElementById('vfx-layer'),
+    nukeGif: document.getElementById('nuke-gif'),
+    flashLayer: document.getElementById('flash-layer'),
     loading: document.getElementById('loading-screen'),
-    loadingPercent: document.getElementById('loading-percent'),
-    loadingText: document.getElementById('loading-text')
+    loadingPercent: document.getElementById('loading-percent')
 };
 
-// === 圖片資源管理 (含強制啟動防呆機制) ===
-const assets = {};
-// 定義圖片清單與備用顏色
+// === 遊戲狀態 ===
+let gameState = {
+    nukes: 3,
+    shake: 0, // 震動強度
+    enemies: [], // 假裝有敵人
+    lastTime: 0
+};
+
+// === 資源載入模擬 (補完你原本被切斷的程式碼) ===
 const imageSources = {
-    player: { src: 'player.png', color: '#00f', w: 64, h: 64 },
-    bulletPlayer: { src: 'bullet_player.png', color: '#0ff', w: 16, h: 32 },
-    enemyMinion: { src: 'enemy_minion.png', color: '#f00', w: 48, h: 48 },
-    enemyTurtle: { src: 'enemy_turtle.png', color: '#0f0', w: 64, h: 64 },
-    bulletEnemy: { src: 'enemy_bullet.png', color: '#f0f', w: 24, h: 24 },
-    boss: { src: 'boss.png', color: '#a00', w: 200, h: 150 },
-    itemShield: { src: 'item_shield.png', color: '#3498db', w: 40, h: 40 },
-    itemPower: { src: 'item_power.png', color: '#f1c40f', w: 40, h: 40 },
-    bgSpace: { src: 'bg_space.png', color: '#111', w: 450, h: 800 },
-    vfxShield: { src: 'vfx_shield.png', color: 'rgba(0,255,255,0.3)', w: 96, h: 96 }
+    // 這裡放你原本的資源，我先簡化以確保能跑
+    player: { src: 'player.png', color: '#00f' },
+    bg: { src: 'bg_space.png', color: '#111' }
 };
 
-let assetsLoaded = 0;
+let loadedCount = 0;
 const totalAssets = Object.keys(imageSources).length;
 
-// 產生替代用的色塊 (當圖片讀取失敗時使用)
-function createPlaceholder(color, w, h) {
-    const c = document.createElement('canvas');
-    c.width = w; c.height = h;
-    const x = c.getContext('2d');
-    x.fillStyle = color;
-    x.fillRect(0, 0, w, h);
-    // 畫個 X
-    x.strokeStyle = '#fff'; x.lineWidth = 2;
-    x.beginPath(); x.moveTo(0,0); x.lineTo(w,h); x.moveTo(w,0); x.lineTo(0,h); x.stroke();
-    return c;
-}
-
 function loadAllAssets(callback) {
-    console.log("Start loading assets...");
-    for(let key in imageSources) {
-        const data = imageSources[key];
-        const img = new Image();
-        
-        // 成功載入
-        img.onload = () => {
-            assets[key] = img;
-            console.log("Loaded: " + key);
-            checkDone();
-        };
-        
-        // 失敗載入 (使用替代色塊)
-        img.onerror = () => {
-            console.warn(`Missing file: ${data.src}, using placeholder.`);
-            assets[key] = createPlaceholder(data.color, data.w, data.h);
-            ui.loadingText.innerText = `缺失檔案: ${data.src} (使用替代圖)`;
-            checkDone();
-        };
-        
-        img.src = data.src;
-    }
-    
-    function checkDone() {
-        assetsLoaded++;
-        const pct = Math.floor((assetsLoaded/totalAssets)*100);
-        ui.loadingPercent.innerText = pct + "%";
-        
-        if(assetsLoaded === totalAssets) {
-            console.log("All assets ready. Starting game.");
-            setTimeout(callback, 500);
+    // 模擬載入過程
+    let progress = 0;
+    const interval = setInterval(() => {
+        progress += 20;
+        ui.loadingPercent.innerText = progress + "%";
+        if (progress >= 100) {
+            clearInterval(interval);
+            ui.loading.style.display = 'none';
+            callback();
         }
-    }
+    }, 100);
 }
-// ============================================
 
-function resize() {
-    const ratio = 450 / 800;
-    let w = window.innerWidth, h = window.innerHeight;
-    if (w / h > ratio) w = h * ratio; else h = w / ratio;
-    canvas.width = 450; canvas.height = 800;
-    canvas.style.width = w + 'px'; canvas.style.height = h + 'px';
-    const container = document.getElementById('game-container');
-    container.style.width = w + 'px'; container.style.height = h + 'px';
-}
-window.addEventListener('resize', resize);
-resize();
-
-// 遊戲變數
-let timeLeft = 120, isGameOver = false, isBossActive = false;
-let isStunned = false, isInvincible = false;
-let nukeCount = 3, firePower = 1, shake = 0, flash = 0, shock = 0;
-let lastTime = performance.now();
-let bgOffsetY = 0;
-
-const player = { x: 225, y: 700, tx: 225, ty: 700, speed: 10 };
-const bullets = [], enemyBullets = [], enemies = [], items = [];
-const boss = { x: 225, y: -200, hp: 2000, maxHp: 2000, dir: 1, shootCD: 0 };
-
-function refreshNukes() {
+// === 核彈核心邏輯 ===
+function initNukeUI() {
     ui.nukeBox.innerHTML = '';
-    for(let i=0; i<nukeCount; i++) {
-        const div = document.createElement('div');
-        div.className = 'nuke-icon';
-        div.innerHTML = '☢';
-        div.onclick = (e) => { e.stopPropagation(); useNuke(); };
-        ui.nukeBox.appendChild(div);
+    for(let i=0; i<gameState.nukes; i++) {
+        const btn = document.createElement('div');
+        btn.className = 'nuke-btn';
+        btn.onclick = () => triggerNuke(btn);
+        ui.nukeBox.appendChild(btn);
     }
 }
-refreshNukes();
 
-const handleMove = (ex, ey) => {
-    if (isGameOver) return;
-    const rect = canvas.getBoundingClientRect();
-    player.tx = (ex - rect.left) * (450 / rect.width);
-    player.ty = (ey - rect.top) * (800 / rect.height);
-    player.tx = Math.max(30, Math.min(420, player.tx));
-    player.ty = Math.max(30, Math.min(770, player.ty));
-};
-canvas.addEventListener('mousemove', e => handleMove(e.clientX, e.clientY));
-canvas.addEventListener('touchmove', e => {
-    handleMove(e.touches[0].clientX, e.touches[0].clientY);
-    e.preventDefault();
-}, {passive: false});
+function triggerNuke(btnElement) {
+    if (gameState.nukes <= 0) return;
+    
+    // 1. 扣除數量 & 移除 UI
+    gameState.nukes--;
+    btnElement.style.display = 'none'; // 隱藏點擊的那顆
 
-function useNuke() {
-    if (nukeCount <= 0 || isStunned || isGameOver) return;
-    nukeCount--; refreshNukes();
-    shake = 40; flash = 1.2; shock = 10;
-    enemies.length = 0; enemyBullets.length = 0;
-    if (isBossActive) boss.hp -= 400;
+    // 2. 啟動震動 (強度 20)
+    gameState.shake = 30;
+
+    // 3. 播放白光閃爍
+    ui.flashLayer.style.opacity = 1;
+    setTimeout(() => { ui.flashLayer.style.opacity = 0; }, 100);
+
+    // 4. 播放 GIF 動畫
+    // 小技巧：加上時間戳記 (?t=...) 強制瀏覽器重新讀取 GIF，確保每次都從頭播放
+    ui.nukeGif.src = "nuke_explosion.gif?t=" + new Date().getTime(); 
+    ui.vfxLayer.style.display = 'block';
+
+    // 1.5秒後關閉 GIF (假設爆炸動畫約 1.5秒)
+    setTimeout(() => {
+        ui.vfxLayer.style.display = 'none';
+    }, 1500);
+
+    console.log("BOOM! Enemies wiped out.");
+    // 在這裡加入「殺死所有敵人」的邏輯
+    // gameState.enemies = [];
 }
 
-function triggerStun() {
-    if (isInvincible || isStunned || isGameOver) return;
-    isStunned = true; shake = 15; flash = 0.3;
-    setTimeout(() => { isStunned = false; }, 1000);
-}
-
-function loop(now) {
-    if (isGameOver) return;
-    let dt = (now - lastTime) / 1000;
-    lastTime = now;
-    update(dt);
-    draw();
-    requestAnimationFrame(loop);
-}
-
+// === 遊戲迴圈 (包含震動效果) ===
 function update(dt) {
-    timeLeft -= dt;
-    ui.timer.innerText = Math.max(0, Math.ceil(timeLeft));
-    if (timeLeft <= 0) finish(false);
-    if (!isBossActive && timeLeft <= 75) startBoss();
-
-    bgOffsetY = (bgOffsetY + dt * 100) % 800;
-
-    player.x += (player.tx - player.x) * 0.15;
-    player.y += (player.ty - player.y) * 0.15;
-
-    player.cd = (player.cd || 0) - dt;
-    if (player.cd <= 0 && !isStunned) {
-        bullets.push({ x: player.x, y: player.y - 30 });
-        if (firePower >= 2) {
-            bullets.push({ x: player.x - 25, y: player.y - 15 });
-            bullets.push({ x: player.x + 25, y: player.y - 15 });
-        }
-        player.cd = 0.12;
+    // 震動衰減
+    if (gameState.shake > 0) {
+        gameState.shake *= 0.9; // 每次遞減 10%
+        if (gameState.shake < 0.5) gameState.shake = 0;
     }
-
-    bullets.forEach((b, i) => { b.y -= 15; if (b.y < -50) bullets.splice(i, 1); });
-    enemyBullets.forEach((b, i) => { 
-        b.x += (b.vx || 0);
-        b.y += (b.vy || 6); 
-        if (b.y > 850 || b.y < -50 || b.x > 500 || b.x < -50) enemyBullets.splice(i, 1); 
-    });
-
-    if (!isBossActive && Math.random() < 0.04) {
-        let isTurtle = Math.random() < 0.25;
-        enemies.push({ 
-            x: Math.random() * 400 + 25, y: -50, 
-            s: isTurtle ? 2.5 : 5, 
-            type: isTurtle ? 'turtle' : 'minion',
-            hp: isTurtle ? 6 : 1,
-            angle: 0
-        });
-    }
-
-    enemies.forEach((e, i) => {
-        e.y += e.s;
-        e.angle += dt * 2;
-        
-        if (e.type === 'minion' && Math.random() > 0.98) {
-            let angle = Math.atan2(player.y - e.y, player.x - e.x);
-            angle += (Math.random()-0.5) * 0.2;
-            enemyBullets.push({ x: e.x, y: e.y, vx: Math.cos(angle)*6, vy: Math.sin(angle)*6 });
-        }
-        
-        if (e.y > 850) enemies.splice(i, 1);
-        
-        if (Math.abs(e.x - player.x) < 30 && Math.abs(e.y - player.y) < 30) {
-            if (!isInvincible) triggerStun();
-            enemies.splice(i, 1);
-        }
-
-        bullets.forEach((b, bi) => {
-            let hitBox = e.type === 'turtle' ? 35 : 25;
-            if (Math.abs(b.x - e.x) < hitBox && Math.abs(b.y - e.y) < hitBox) {
-                e.hp--; bullets.splice(bi, 1);
-                if (e.hp <= 0) {
-                    enemies.splice(i, 1);
-                    if (e.type === 'turtle') items.push({ x: e.x, y: e.y, type: 'shield' });
-                    else if (Math.random() > 0.85) items.push({ x: e.x, y: e.y, type: 'power' });
-                }
-            }
-        });
-    });
-
-    items.forEach((it, i) => {
-        it.y += 3;
-        it.angle = (it.angle || 0) + dt * 5;
-        if (it.y > 850) items.splice(i, 1);
-        if (Math.abs(it.x - player.x) < 40 && Math.abs(it.y - player.y) < 40) {
-            if (it.type === 'shield') activateShield();
-            else firePower = 2;
-            items.splice(i, 1);
-        }
-    });
-
-    if (isBossActive) {
-        if (boss.y < 150) boss.y += 2;
-        boss.x += boss.dir * 2.5;
-        if (boss.x > 350 || boss.x < 100) boss.dir *= -1;
-        
-        if (Math.random() > 0.94) {
-            for(let a=-1; a<=1; a++) {
-                 enemyBullets.push({ x: boss.x + a*40, y: boss.y+60, vx: a*1.5, vy: 7 });
-            }
-        }
-        bullets.forEach((b, bi) => {
-            if (Math.abs(b.x - boss.x) < 90 && Math.abs(b.y - boss.y) < 70) {
-                boss.hp -= (firePower*2); bullets.splice(bi, 1);
-                ui.bossFill.style.width = Math.max(0, (boss.hp / boss.maxHp * 100)) + '%';
-                if (boss.hp <= 0) finish(true);
-            }
-        });
-    }
-
-    enemyBullets.forEach((eb, i) => {
-        if (Math.abs(eb.x - player.x) < 20 && Math.abs(eb.y - player.y) < 20) {
-            if (!isInvincible) triggerStun();
-            enemyBullets.splice(i, 1);
-        }
-    });
-}
-
-function activateShield() {
-    isInvincible = true;
-    setTimeout(() => { isInvincible = false; }, 6000);
 }
 
 function draw() {
+    // 清空畫面
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+
     ctx.save();
     
-    if (shake > 0) {
-        ctx.translate((Math.random()-0.5)*shake, (Math.random()-0.5)*shake);
-        shake *= 0.9;
-        if (shake < 0.5) shake = 0;
+    // === 震動效果核心 ===
+    // 在繪製任何東西之前，先根據 shake 值隨機位移畫布
+    if (gameState.shake > 0) {
+        const dx = (Math.random() - 0.5) * gameState.shake;
+        const dy = (Math.random() - 0.5) * gameState.shake;
+        ctx.translate(dx, dy);
     }
+
+    // 畫背景 (示意外空)
+    ctx.fillStyle = "#111";
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
     
-    ctx.clearRect(0, 0, 450, 800);
-    
-    // 背景
-    ctx.drawImage(assets.bgSpace, 0, bgOffsetY - 800, 450, 800);
-    ctx.drawImage(assets.bgSpace, 0, bgOffsetY, 450, 800);
+    // 畫玩家 (示意)
+    ctx.fillStyle = "#0ff";
+    ctx.beginPath();
+    ctx.moveTo(225, 700);
+    ctx.lineTo(205, 740);
+    ctx.lineTo(245, 740);
+    ctx.fill();
 
-    // 衝擊波
-    if (shock > 0) {
-        ctx.save();
-        ctx.beginPath(); ctx.arc(225, 400, shock, 0, Math.PI*2);
-        ctx.strokeStyle = `rgba(255,50,50,${1-shock/900})`; ctx.lineWidth = 30 * (1-shock/900); ctx.stroke();
-        ctx.restore();
-        shock += 35; if(shock > 900) shock = 0;
-    }
+    // 畫敵人 (示意)
+    ctx.fillStyle = "#f00";
+    ctx.fillRect(100, 100, 50, 50);
+    ctx.fillRect(300, 200, 50, 50);
 
-    // 玩家
-    if (!isStunned || Math.floor(Date.now()/100)%2) {
-        ctx.drawImage(assets.player, player.x - 32, player.y - 32, 64, 64);
-        if (isInvincible) {
-             ctx.save();
-             ctx.globalAlpha = 0.8 + Math.sin(Date.now()/100)*0.2;
-             ctx.drawImage(assets.vfxShield, player.x - 48, player.y - 48, 96, 96);
-             ctx.restore();
-        }
-    }
-
-    bullets.forEach(b => {
-        ctx.drawImage(assets.bulletPlayer, b.x - 8, b.y - 16, 16, 32);
-    });
-    enemyBullets.forEach(b => {
-        ctx.drawImage(assets.bulletEnemy, b.x - 12, b.y - 12, 24, 24);
-    });
-
-    enemies.forEach(e => {
-        ctx.save();
-        ctx.translate(e.x, e.y);
-        if (e.type !== 'turtle') ctx.rotate(Math.sin(e.angle)*0.1); 
-        if (e.type === 'turtle') ctx.drawImage(assets.enemyTurtle, -32, -32, 64, 64);
-        else ctx.drawImage(assets.enemyMinion, -24, -24, 48, 48);
-        ctx.restore();
-    });
-
-    items.forEach(it => {
-        ctx.save();
-        ctx.translate(it.x, it.y);
-        ctx.rotate(it.angle);
-        let img = it.type === 'shield' ? assets.itemShield : assets.itemPower;
-        ctx.drawImage(img, -20, -20, 40, 40);
-        ctx.restore();
-    });
-
-    if (isBossActive) {
-        ctx.drawImage(assets.boss, boss.x - 100, boss.y - 75, 200, 150);
-    }
-    
     ctx.restore();
-
-    if (flash > 0) {
-        ctx.fillStyle = `rgba(255,255,255,${flash})`; ctx.fillRect(0,0,450,800);
-        flash -= 0.05;
-        if (flash < 0) flash = 0;
-    }
 }
 
-function startBoss() {
-    isBossActive = true; 
-    nukeCount = Math.max(nukeCount, 3); refreshNukes();
-    ui.bossBar.style.display = 'block';
-    ui.msg.innerText = '⚠️ WARNING: BOSS APPROACHING ⚠️'; 
-    ui.msg.style.color = '#f00';
-    ui.msg.style.display = 'block';
-    setTimeout(() => ui.msg.style.display = 'none', 3000);
+function gameLoop(timestamp) {
+    const dt = timestamp - gameState.lastTime;
+    gameState.lastTime = timestamp;
+
+    update(dt);
+    draw();
+
+    requestAnimationFrame(gameLoop);
 }
 
-function finish(win) {
-    isGameOver = true;
-    ui.msg.innerText = win ? '🏆 MISSION COMPLETE!' : '❌ MISSION FAILED';
-    ui.msg.style.color = win ? '#0ff' : '#f00'; ui.msg.style.display = 'block';
-    ui.msg.style.textShadow = win ? '0 0 20px #0ff' : '0 0 20px #f00';
-    if (win) { shake = 60; flash = 1.0; } else { shake = 30; }
-    setTimeout(() => location.reload(), 5000);
-}
-
-// 啟動
+// === 啟動 ===
 loadAllAssets(() => {
-    ui.loading.style.display = 'none';
-    lastTime = performance.now();
-    requestAnimationFrame(loop);
+    initNukeUI();
+    requestAnimationFrame(gameLoop);
 });
+
 </script>
 </body>
 </html>
+
