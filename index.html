@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Super Pilot: Supply Drop</title>
+    <title>Super Pilot: Final Balance</title>
     <style>
         body { margin: 0; background: #000; overflow: hidden; display: flex; justify-content: center; align-items: center; height: 100vh; font-family: 'Arial Black', sans-serif; touch-action: none; }
         #game-container { position: relative; width: 100%; height: 100%; max-width: 480px; background: #111; overflow: hidden; }
@@ -249,11 +249,12 @@ function fireNuke() {
     gameState.enemyBullets = []; 
 
     if(gameState.boss) {
+        // === 核彈調整：線性 100 ~ 400 ===
         let timeFactor = (60 - gameState.totalTime) / 60; 
         if(timeFactor < 0) timeFactor = 0;
         if(timeFactor > 1) timeFactor = 1;
         
-        let damage = 100 + (timeFactor * 100); 
+        let damage = 100 + (timeFactor * 300); // 100 base + 300 bonus = 400 max
         damage = Math.floor(damage);
 
         gameState.boss.hp -= damage;
@@ -358,7 +359,7 @@ function update(dt) {
             showMsg("TARGET LOCKED!", "#f00");
         }
 
-        // 大大招
+        // 大大招 (Hellfire)
         b.megaTimer -= dt;
         if(b.megaTimer <= 0) {
             fireBossMega(b.x, b.y, p.x, p.y);
@@ -366,12 +367,11 @@ function update(dt) {
             showMsg("HELLFIRE!!", "#f0f");
         }
         
-        // === 新增：Boss 掉寶邏輯 ===
-        // 每 5~8 秒掉落補給
+        // 掉寶邏輯
         b.dropTimer -= dt;
         if(b.dropTimer <= 0) {
             spawnItem(Math.random() * (canvas.width - 40) + 20, -20);
-            b.dropTimer = 5 + Math.random() * 3; // 重置計時
+            b.dropTimer = 5 + Math.random() * 3; 
         }
 
         ui.bossFill.style.width = (b.hp / b.maxHp * 100) + "%";
@@ -394,7 +394,7 @@ function fireBossSuper(bx, by, px, py) {
             x: bx, y: by + 50,
             vx: Math.cos(angle) * speed,
             vy: Math.sin(angle) * speed,
-            source: 'boss'
+            source: 'boss' // 這裡是一般 Boss 攻擊
         });
     }
     gameState.shake = 15;
@@ -408,7 +408,7 @@ function fireBossMega(bx, by, px, py) {
             x: bx, y: by + 50,
             vx: Math.cos(angle) * 250,
             vy: Math.sin(angle) * 250,
-            source: 'boss'
+            source: 'boss_mega' // === 標記為大大招 ===
         });
     }
     
@@ -419,7 +419,7 @@ function fireBossMega(bx, by, px, py) {
             x: bx, y: by + 50,
             vx: Math.cos(aimAngle) * speed,
             vy: Math.sin(aimAngle) * speed,
-            source: 'boss'
+            source: 'boss_mega' // === 標記為大大招 ===
         });
     }
     gameState.shake = 30;
@@ -451,7 +451,7 @@ function enterBossPhase() {
             dir: 1, shootTimer: 0,
             superTimer: 5.0,
             megaTimer: 10.0,
-            dropTimer: 3.0 // 初始 3秒後掉第一次寶
+            dropTimer: 3.0 
         };
         ui.bossBar.style.display = 'block';
     }, 2000);
@@ -543,7 +543,7 @@ function checkCollisions() {
     }
 
     if(gameState.boss && dist(gameState.boss, gameState.player) < 100) {
-        tryStunPlayer('boss');
+        tryStunPlayer('boss'); // 撞到 Boss 本體算一般暈眩
     }
 
     gameState.items = gameState.items.filter(i => {
@@ -557,14 +557,17 @@ function checkCollisions() {
     });
 }
 
+// === 暈眩平衡調整 ===
 function tryStunPlayer(source) {
     if(gameState.shieldTime > 0) return; 
 
     let duration = 0;
-    if (source === 'boss') {
-        duration = 1.0; 
+    if (source === 'boss_mega') {
+        duration = 0.5; // 大大招：0.5s
+    } else if (source === 'boss') {
+        duration = 0.3; // 普攻/大招/撞擊：0.3s
     } else {
-        if(Math.random() < 0.3) duration = 0.2; 
+        if(Math.random() < 0.3) duration = 0.2; // 小兵：0.2s
     }
 
     if(duration > 0) {
