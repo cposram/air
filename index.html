@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Super Pilot: Ultimate Strategy</title>
+    <title>Super Pilot: Nightmare Mode</title>
     <style>
         body { margin: 0; background: #000; overflow: hidden; display: flex; justify-content: center; align-items: center; height: 100vh; font-family: 'Arial Black', sans-serif; touch-action: none; }
         #game-container { position: relative; width: 100%; height: 100%; max-width: 480px; background: #111; overflow: hidden; }
@@ -57,14 +57,6 @@
             margin-top: 50px; font-family: sans-serif;
         }
         
-        /* 傷害飄字特效 */
-        .damage-popup {
-            position: absolute; color: #ff0; font-weight: bold; font-size: 24px;
-            pointer-events: none; animation: floatUp 1s forwards;
-            text-shadow: 2px 2px 0 #000;
-        }
-        @keyframes floatUp { to { transform: translateY(-50px); opacity: 0; } }
-
         #debug { position: absolute; bottom: 10px; left: 10px; color: #ff5555; font-size: 12px; font-family: monospace; background: rgba(0,0,0,0.5); padding: 5px; display: none; }
     </style>
 </head>
@@ -254,20 +246,18 @@ function fireNuke() {
     gameState.enemyBullets = []; 
 
     if(gameState.boss) {
-        // === 改動：動態傷害計算 ===
-        // 時間剩下 60s -> 傷害 100
-        // 時間剩下 0s  -> 傷害 200
-        let timeFactor = (60 - gameState.totalTime) / 60; // 0.0 ~ 1.0 (如果時間負數會超過1，需限制)
+        // 動態傷害: 時間越少傷害越高 (100 -> 200)
+        let timeFactor = (60 - gameState.totalTime) / 60; 
         if(timeFactor < 0) timeFactor = 0;
         if(timeFactor > 1) timeFactor = 1;
         
-        let damage = 100 + (timeFactor * 100); // 100 ~ 200
+        let damage = 100 + (timeFactor * 100); 
         damage = Math.floor(damage);
 
         gameState.boss.hp -= damage;
         gameState.boss.y -= 50;
         
-        showMsg(`NUKE HIT: -${damage}`, "#ff0"); // 顯示傷害數值
+        showMsg(`NUKE HIT: -${damage}`, "#ff0");
     }
 }
 
@@ -353,7 +343,7 @@ function update(dt) {
         b.superTimer -= dt;
         if(b.superTimer <= 0) {
             fireBossSuper(b.x, b.y);
-            b.superTimer = 5.0; 
+            b.superTimer = 5.0; // 5秒冷卻
             showMsg("SUPER ATTACK!", "#f00");
         }
 
@@ -366,7 +356,6 @@ function update(dt) {
 }
 
 function fireBossSuper(bx, by) {
-    // === 改動：密度提升至 36 發 (每10度一發) ===
     const count = 36; 
     for(let i=0; i<count; i++) {
         const angle = (Math.PI * 2 / count) * i;
@@ -401,7 +390,7 @@ function enterBossPhase() {
         gameState.boss = {
             x: canvas.width/2, y: -150,
             w: 200, h: 150,
-            hp: 3000, maxHp: 3000,
+            hp: 3600, maxHp: 3600, // 增強血量至 3600
             dir: 1, shootTimer: 0,
             superTimer: 5.0
         };
@@ -451,7 +440,6 @@ function checkCollisions() {
         return !hit;
     });
 
-    // 1. 小兵撞擊
     for(let i=gameState.enemies.length-1; i>=0; i--) {
         let e = gameState.enemies[i];
         if(dist(gameState.player, e) < (e.w+gameState.player.w)/3) {
@@ -464,13 +452,11 @@ function checkCollisions() {
         }
     }
 
-    // 2. 敵方子彈 (改動：護盾可彈開子彈)
     for(let i=gameState.enemyBullets.length-1; i>=0; i--) {
         let b = gameState.enemyBullets[i];
         if(dist(b, gameState.player) < 25) {
             if(gameState.shieldTime > 0) {
-                // === 改動：護盾彈開/銷毀子彈 ===
-                createExplosion(b.x, b.y, '#0ff'); // 藍色火花代表格擋
+                createExplosion(b.x, b.y, '#0ff');
                 gameState.enemyBullets.splice(i, 1);
             } else {
                 tryStunPlayer(b.source);
